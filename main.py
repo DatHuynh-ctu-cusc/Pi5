@@ -12,9 +12,10 @@ if __name__ == "__main__":
         root = tk.Tk()
         app = SimpleApp(root)
 
-        threading.Thread(target=send_to_pi4, args=(app.running,), daemon=True).start()
-        threading.Thread(target=receive_lidar, args=(app.running, app.update_lidar_map), daemon=True).start()
-        
+        # Truyền send_text và recv_text từ GUI vào các luồng
+        threading.Thread(target=send_to_pi4, args=(app.running, lambda: app.send_text), daemon=True).start()
+        threading.Thread(target=receive_lidar, args=(app.running, app.update_lidar_map, lambda: app.recv_text), daemon=True).start()
+
         root.mainloop()
     except KeyboardInterrupt:
         print("[App] ⛔ Đóng ứng dụng.")

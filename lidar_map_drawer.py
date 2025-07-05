@@ -1,83 +1,107 @@
 import math
 from PIL import Image, ImageTk, ImageDraw
 
-def update_ogm_map(ogm_map, data, robot_pose, resolution=0.1):
-    angle = data.get("angle_min", 0)
-    angle_inc = data.get("angle_increment", 0.01)
-    ranges = data.get("ranges", [])
+def bresenham(x0, y0, x1, y1):
+    points = []
+    dx = abs(x1 - x0)
+    dy = abs(y1 - y0)
+    x, y = x0, y0
+    sx = -1 if x0 > x1 else 1
+    sy = -1 if y0 > y1 else 1
 
-    rx, ry, heading = robot_pose
-    cells = ogm_map.shape[0]
+    if dx > dy:
+        err = dx / 2.0
+        while x != x1:
+            points.append((x, y))
+            err -= dy
+            if err < 0:
+                y += sy
+                err += dx
+            x += sx
+    else:
+        err = dy / 2.0
+        while y != y1:
+            points.append((x, y))
+            err -= dx
+            if err < 0:
+                x += sx
+                err += dy
+            y += sy
+    points.append((x1, y1))
+    return points
 
-    for r in ranges:
+def update_ogm_map(ogm_map, lidar_data, robot_pose, resolution=0.1):
+    if lidar_data is None:
+        return
+
+    x0, y0, theta = robot_pose
+    angle = lidar_data["angle_min"]
+    angle_inc = lidar_data["angle_increment"]
+
+    for r in lidar_data["ranges"]:
         if 0.05 < r < 6.0:
-            theta = heading + angle
-            x_end = rx + r * math.cos(theta)
-            y_end = ry + r * math.sin(theta)
+            angle_world = theta + angle
+            x1 = x0 + r * math.cos(angle_world)
+            y1 = y0 + r * math.sin(angle_world)
 
-            gx0 = int(rx / resolution)
-            gy0 = int(ry / resolution)
-            gx1 = int(x_end / resolution)
-            gy1 = int(y_end / resolution)
+            x0_cell = int(x0 / resolution)
+            y0_cell = int(y0 / resolution)
+            x1_cell = int(x1 / resolution)
+            y1_cell = int(y1 / resolution)
 
-            # Vẽ tia xám từ robot -> vật cản (ray-casting)
-            steps = max(abs(gx1 - gx0), abs(gy1 - gy0))
-            for i in range(steps):
-                xi = int(gx0 + (gx1 - gx0) * i / steps)
-                yi = int(gy0 + (gy1 - gy0) * i / steps)
-                if 0 <= xi < cells and 0 <= yi < cells and ogm_map[yi, xi] == 255:
-                    ogm_map[yi, xi] = 200  # free space
-
-            # Vật cản tại cuối tia
-            if 0 <= gx1 < cells and 0 <= gy1 < cells:
-                ogm_map[gy1, gx1] = 0
-
+            points = bresenham(x0_cell, y0_cell, x1_cell, y1_cell)
+            for i, (x, y) in enumerate(points):
+                if 0 <= x < ogm_map.shape[1] and 0 <= y < ogm_map.shape[0]:
+                    if i < len(points) - 1:
+                        if ogm_map[y, x] == 0:
+                            ogm_map[y, x] = 1  # free
+                    else:
+                        ogm_map[y, x] = 2  # occupied
         angle += angle_inc
 
-
-def draw_ogm_on_canvas(canvas, ogm_map, robot_pose, visited_cells=None):
+def draw_ogm_on_canvas(canvas, ogm_map, robot_pose, visited_cells=None, visited_map=None):
     if not canvas.winfo_exists():
         return
 
-    canvas.delete("all")
     width, height = canvas.winfo_width(), canvas.winfo_height()
     if width < 10 or height < 10:
         return
 
-    # === Resize OGM map để hiển thị ===
-    ogm_img = Image.fromarray(ogm_map)
-    ogm_img = ogm_img.transpose(Image.FLIP_TOP_BOTTOM)
-    ogm_img = ogm_img.resize((width, height), resample=Image.NEAREST)
-    draw = ImageDraw.Draw(ogm_img)
+    img = Image.new("RGB", (ogm_map.shape[1], ogm_map.shape[0]), "gray")
+    pixels = img.load()
 
-    # === Vẽ các ô đã đi qua (visited_cells) nếu có ===
-    if visited_cells:
-        for cx, cy in visited_cells:
-            px = int(cx * width / ogm_map.shape[1])
-            py = int((ogm_map.shape[0] - cy - 1) * height / ogm_map.shape[0])
-            draw.rectangle([px, py, px + 1, py + 1], fill=180)
+    for y in range(ogm_map.shape[0]):
+        for x in range(ogm_map.shape[1]):
+            val = ogm_map[y][x]
+            if val == 1:
+                pixels[x, y] = (255, 255, 255)
+            elif val == 2:
+                pixels[x, y] = (0, 0, 0)
 
-    # === Vẽ robot (vị trí tính từ encoder) ===
-    x_m, y_m, theta = robot_pose  # x, y theo mét
-    map_w_m = ogm_map.shape[1] * 0.1  # resolution = 0.1
-    map_h_m = ogm_map.shape[0] * 0.1
+    if visited_map is not None:
+        for y in range(min(visited_map.shape[0], ogm_map.shape[0])):
+            for x in range(min(visited_map.shape[1], ogm_map.shape[1])):
+                if visited_map[y][x] == 255:
+                    pixels[x, y] = (180, 180, 180)
 
-    px = int(x_m / map_w_m * width)
-    py = int((1 - y_m / map_h_m) * height)
+    draw = ImageDraw.Draw(img)
+    x_m, y_m, theta = robot_pose
+    px = int(x_m / 0.1)
+    py = ogm_map.shape[0] - int(y_m / 0.1)
 
-    r = 4  # bán kính robot vẽ
-    draw.ellipse([px - r, py - r, px + r, py + r], fill="red")
+    draw.ellipse((px-2, py-2, px+2, py+2), fill="red")
+    fx = int(px + 6 * math.cos(theta))
+    fy = int(py - 6 * math.sin(theta))
+    draw.line((px, py, fx, fy), fill="blue", width=1)
 
-    arrow_len = 12
-    fx = int(px + arrow_len * math.cos(theta))
-    fy = int(py - arrow_len * math.sin(theta))
-    draw.line([(px, py), (fx, fy)], fill="green", width=2)
-
-    # Hiển thị lên canvas
-    tk_img = ImageTk.PhotoImage(ogm_img)
+    resized_img = img.resize((width, height), resample=Image.NEAREST)
+    tk_img = ImageTk.PhotoImage(resized_img)
     canvas.image = tk_img
-    canvas.create_image(0, 0, anchor="nw", image=tk_img)
 
+    if hasattr(canvas, "ogm_img_id"):
+        canvas.itemconfig(canvas.ogm_img_id, image=tk_img)
+    else:
+        canvas.ogm_img_id = canvas.create_image(0, 0, anchor="nw", image=tk_img)
 
 def draw_zoomed_lidar_map(canvas, data, max_range=2.0):
     if not canvas or data is None:
@@ -108,13 +132,12 @@ def draw_zoomed_lidar_map(canvas, data, max_range=2.0):
 
             if 0 <= gx < cells and 0 <= gy < cells:
                 pixels[gx, gy] = (0, 0, 0)
-
         angle += angle_inc
 
     img = img.resize((width, height), resample=Image.NEAREST)
     tk_img = ImageTk.PhotoImage(img)
-
     canvas.update_idletasks()
+
     canvas_w = canvas.winfo_width()
     canvas_h = canvas.winfo_height()
     x = (canvas_w - tk_img.width()) // 2
@@ -125,5 +148,4 @@ def draw_zoomed_lidar_map(canvas, data, max_range=2.0):
         canvas.coords(canvas.zoomed_map, x, y)
     else:
         canvas.zoomed_map = canvas.create_image(x, y, anchor="nw", image=tk_img)
-
     canvas.image = tk_img

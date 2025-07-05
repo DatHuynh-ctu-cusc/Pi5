@@ -6,6 +6,8 @@ from encoder_handler import positions, get_robot_pose
 from lidar_map_drawer import update_ogm_map, draw_ogm_on_canvas, draw_zoomed_lidar_map
 from PIL import Image, ImageTk
 import time
+import math
+
 
 class SimpleApp:
     def __init__(self, root):
@@ -40,20 +42,15 @@ class SimpleApp:
         self.zoom_map_canvas = None
         self.scan_canvas = None
         self.path_label = None
+        self.send_text = None
+        self.recv_text = None
 
         self.map_size = 10.0
         self.resolution = 0.1
         self.cells = int(self.map_size / self.resolution)
         self.ogm_map = np.ones((self.cells, self.cells), dtype=np.uint8) * 255
-        self.visited_map = np.zeros((60, 60), dtype=np.uint8)
+        self.ogm_map_scan = np.zeros((self.cells, self.cells), dtype=np.uint8)  # 0: unknown, 1: free, 2: occupied
         self.robot_pose = (5.0, 5.0, 0.0)
-        self.robot_pos_xy = [30, 30]
-        self.visited_map[self.robot_pos_xy[1]][self.robot_pos_xy[0]] = 255
-
-        # === Visited cells ===
-        self.step_size = 0.2
-        self.visited_cells = set()
-        self.last_save_time = time.time()
 
         self.show_home()
 
@@ -102,9 +99,6 @@ class SimpleApp:
         self.path_btn = tk.Button(btn_frame, text="Vẽ đường đi", width=15)
         self.path_btn.pack(pady=5)
 
-        self.save_png_btn = tk.Button(btn_frame, text="Lưu PNG Map", command=self.save_visited_png, width=15)  # 🔄 NEW
-        self.save_png_btn.pack(pady=5)  # 🔄 NEW
-
         self.path_label = tk.Label(btn_frame, text="Số đường đi: 0", bg="white", font=("Arial", 11))
         self.path_label.pack(pady=10)
 
@@ -118,42 +112,22 @@ class SimpleApp:
         self.scan_canvas = tk.Canvas(frame, bg="white")
         self.scan_canvas.pack(expand=True, fill="both")
 
-        btn_frame = tk.Frame(frame, bg="white")
-        btn_frame.pack(pady=10)
-
-        tk.Button(btn_frame, text="🧹 Làm mới", command=self.update_scan_map, width=15).pack(side="left", padx=10)
-        tk.Button(btn_frame, text="💾 Lưu bản đồ", command=self.save_scan_map, width=15).pack(side="left", padx=10)
-
-        self.update_scan_map()
-
-    def update_scan_map(self):
-        self.visited_map[self.robot_pos_xy[1]][self.robot_pos_xy[0]] = 255
-        img = Image.fromarray(self.visited_map, mode='L').resize((400, 400))
-        img = img.convert("RGB")
-        self.tk_scan_img = ImageTk.PhotoImage(img)
-        self.scan_canvas.delete("all")
-        self.scan_canvas.create_image(0, 0, anchor="nw", image=self.tk_scan_img)
-
-    def save_scan_map(self):
-        img = Image.fromarray(self.visited_map, mode='L')
-        img.save("/home/dat/LuanVan/visited_cells_map.png")
-        print("✅ Đã lưu visited_map.png")
-
-    def save_visited_png(self):  # 🔄 NEW
-        size = 60
-        img = Image.new("L", (size, size), 0)
-        for x, y in self.visited_cells:
-            if 0 <= x < size and 0 <= y < size:
-                img.putpixel((x, y), 255)
-        img = img.transpose(Image.FLIP_TOP_BOTTOM)
-        img = img.resize((400, 400), resample=Image.NEAREST)
-        img.save("/home/dat/LuanVan/visited_cells_map.png")
-        print("✅ Đã lưu visited_cells_map.png")
-
     def show_data(self):
         for widget in self.content.winfo_children():
             widget.destroy()
-        tk.Label(self.content, text="\U0001F4BE Dữ liệu robot", font=("Arial", 20), bg="white").pack(pady=20)
+
+        title = tk.Label(self.content, text="\U0001F4BE Dữ LIỆU ROBOT", font=("Arial", 20), bg="white")
+        title.pack(pady=10)
+
+        send_label = tk.Label(self.content, text="Dữ LIỆU Gửi (Encoder + Limit):", bg="white", font=("Arial", 12, "bold"))
+        send_label.pack(pady=(10, 0))
+        self.send_text = tk.Text(self.content, height=10, bg="#ecf0f1")
+        self.send_text.pack(fill="x", padx=20)
+
+        recv_label = tk.Label(self.content, text="Dữ LIỆU NHẬN (LiDAR từ Pi4):", bg="white", font=("Arial", 12, "bold"))
+        recv_label.pack(pady=(20, 0))
+        self.recv_text = tk.Text(self.content, height=10, bg="#ecf0f1")
+        self.recv_text.pack(fill="x", padx=20)
 
     def show_folder(self):
         self.update_content("\U0001F4C2 Thư mục lưu file")
@@ -201,30 +175,42 @@ class SimpleApp:
 
     def update_lidar_map(self, data):
         try:
-            pose = data.get("pose", {})
-            if "x" in pose and "y" in pose:
-                cell = (int(pose["x"] / self.step_size), int(pose["y"] / self.step_size))
-                self.visited_cells.add(cell)
-                if 0 <= cell[0] < 60 and 0 <= cell[1] < 60:
-                    self.visited_map[cell[1]][cell[0]] = 255
+            self.robot_pose = get_robot_pose()[:3]
+            x_cell = int(self.robot_pose[0] / self.resolution)
+            y_cell = int(self.robot_pose[1] / self.resolution)
+            self.robot_pos_xy = [x_cell, y_cell]
 
-                if time.time() - self.last_save_time > 10:
-                    with open("visited_map.txt", "w") as f:
-                        for c in self.visited_cells:
-                            f.write(f"{c[0]} {c[1]}\n")
-                    self.last_save_time = time.time()
-                    print("[App] 💾 Đã lưu visited_map.txt")
+            if hasattr(self, 'main_map_canvas') and self.main_map_canvas and self.main_map_canvas.winfo_exists():
+                draw_ogm_on_canvas(self.main_map_canvas, self.ogm_map, self.robot_pose)
 
-            self.robot_pose = get_robot_pose()
-
-            if self.main_map_canvas and self.main_map_canvas.winfo_exists():
-                draw_ogm_on_canvas(self.main_map_canvas, self.ogm_map, self.robot_pose, visited_cells=self.visited_cells)
-
-            if self.zoom_map_canvas and self.zoom_map_canvas.winfo_exists():
+            if hasattr(self, 'zoom_map_canvas') and self.zoom_map_canvas and self.zoom_map_canvas.winfo_exists():
                 draw_zoomed_lidar_map(self.zoom_map_canvas, data)
 
+            if hasattr(self, 'scan_canvas') and self.scan_canvas and self.scan_canvas.winfo_exists():
+                angle = data.get("angle_min", 0)
+                inc = data.get("angle_increment", 0.01)
+                for r in data.get("ranges", []):
+                    if 0.05 < r < 6.0:
+                        x = self.robot_pose[0] + r * math.cos(angle)
+                        y = self.robot_pose[1] + r * math.sin(angle)
+                        gx = int(x / self.resolution)
+                        gy = int(y / self.resolution)
+                        if 0 <= gx < self.cells and 0 <= gy < self.cells:
+                            self.ogm_map_scan[gy, gx] = 2
+                        steps = int(r / self.resolution)
+                        for s in range(steps):
+                            fx = self.robot_pose[0] + s * self.resolution * math.cos(angle)
+                            fy = self.robot_pose[1] + s * self.resolution * math.sin(angle)
+                            fx_cell = int(fx / self.resolution)
+                            fy_cell = int(fy / self.resolution)
+                            if 0 <= fx_cell < self.cells and 0 <= fy_cell < self.cells:
+                                if self.ogm_map_scan[fy_cell, fx_cell] == 0:
+                                    self.ogm_map_scan[fy_cell, fx_cell] = 1
+                    angle += inc
+                draw_ogm_scan_canvas(self.scan_canvas, self.ogm_map_scan, self.robot_pose)
+
         except Exception as e:
-            print("[App] ⚠️ Lỗi khi cập nhật bản đồ:", e)
+            print("[App] ⚠️ Lỗi khi cập nhật LiDAR map:", e)
 
     def draw_path(self):
         print("[App] 🚗 Đã bấm nút vẽ đường đi")
@@ -232,6 +218,76 @@ class SimpleApp:
             current = int(self.path_label.cget("text").split(":")[-1].strip())
             self.path_label.config(text=f"Số thứ tự: {current + 1}")
 
+
+def draw_ogm_scan_canvas(canvas, ogm_map, robot_pose):
+    if not canvas or not canvas.winfo_exists():
+        return
+
+    width = canvas.winfo_width()
+    height = canvas.winfo_height()
+    map_size_px = min(width, height)
+
+    ogm_res = ogm_map.shape[0]
+    scale = map_size_px // ogm_res
+    img_size = ogm_res * scale
+
+    img = Image.new("RGB", (img_size, img_size), "gray")  # gray = unknown
+    pixels = img.load()
+
+    for y in range(ogm_res):
+        for x in range(ogm_res):
+            value = ogm_map[y, x]
+            if value == 1:
+                pixels[x * scale, y * scale] = (255, 255, 255)  # free: white
+            elif value == 2:
+                pixels[x * scale, y * scale] = (0, 0, 0)        # occupied: black
+
+    # Tô pixel theo tỷ lệ
+    for y in range(ogm_res):
+        for x in range(ogm_res):
+            color = pixels[x * scale, y * scale]
+            for dy in range(scale):
+                for dx in range(scale):
+                    if (x * scale + dx) < img_size and (y * scale + dy) < img_size:
+                        pixels[x * scale + dx, y * scale + dy] = color
+
+    # Vẽ robot
+    rx, ry, theta = robot_pose
+    center_cell = ogm_res // 2
+    rx_cell = center_cell + int(rx / 0.1)
+    ry_cell = center_cell - int(ry / 0.1)
+
+    rx_px = rx_cell * scale
+    ry_px = ry_cell * scale
+
+    if 0 <= rx_px < img_size and 0 <= ry_px < img_size:
+        for dy in range(-3, 4):
+            for dx in range(-3, 4):
+                if 0 <= rx_px+dx < img_size and 0 <= ry_px+dy < img_size:
+                    pixels[rx_px+dx, ry_px+dy] = (255, 0, 0)  # red dot
+        dx = int(10 * math.cos(theta))
+        dy = int(10 * math.sin(theta))
+        if 0 <= rx_px+dx < img_size and 0 <= ry_px+dy < img_size:
+            for i in range(3):
+                if 0 <= rx_px+dx+i < img_size and 0 <= ry_px+dy+i < img_size:
+                    pixels[rx_px+dx+i, ry_px+dy+i] = (0, 0, 255)  # blue arrow
+
+        # Hiển thị ảnh
+    canvas.update_idletasks()
+    width = canvas.winfo_width()
+    height = canvas.winfo_height()    
+    img = img.resize((width, height), Image.NEAREST)
+    tk_img = ImageTk.PhotoImage(img)
+    canvas.image = tk_img  # giữ tham chiếu tránh bị xoá
+    canvas.delete("all")
+
+    # Tính tọa độ để vẽ ở giữa canvas
+    img_width = tk_img.width()
+    img_height = tk_img.height()
+    x = (width - img_width) // 2
+    y = (height - img_height) // 2
+
+    canvas.create_image(x, y, anchor="nw", image=tk_img)
 
 if __name__ == "__main__":
     root = tk.Tk()

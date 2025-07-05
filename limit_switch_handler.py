@@ -8,7 +8,12 @@ LIMIT_SWITCHES = {
 }
 
 def get_limit_states():
-    return {k: '1' if sw.is_pressed else '0' for k, sw in LIMIT_SWITCHES.items()}
+    try:
+        return {k: '1' if sw.is_pressed else '0' for k, sw in LIMIT_SWITCHES.items()}
+    except Exception as e:
+        print("[App] ⚠️ Limit switch lỗi:", e)
+        return {k: '0' for k in LIMIT_SWITCHES}
+
 
 def cleanup_switches():
     for sw in LIMIT_SWITCHES.values():

@@ -1,7 +1,12 @@
 import socket
 import json
 
-def receive_lidar(running_flag, update_callback):
+def safe_insert_json(widget, data):
+    if widget.winfo_exists():
+        widget.insert("end", json.dumps(data) + "\n")
+        widget.see("end")
+
+def receive_lidar(running_flag, update_callback, get_text_widget=None):
     PORT = 8899
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -31,8 +36,20 @@ def receive_lidar(running_flag, update_callback):
                                 continue
                             try:
                                 parsed = json.loads(line)
+
+                                # Gọi cập nhật bản đồ
                                 if callable(update_callback):
                                     update_callback(parsed)
+
+                                # Ghi JSON vào GUI nếu có
+                                if get_text_widget:
+                                    text_widget = get_text_widget()
+                                    if text_widget and text_widget.winfo_exists():
+                                        try:
+                                            text_widget.after(0, lambda: safe_insert_json(text_widget, parsed))
+                                        except:
+                                            pass
+
                             except json.JSONDecodeError:
                                 print("[App] ❌ Không phải JSON:", line)
                     except Exception as e:
@@ -40,3 +57,4 @@ def receive_lidar(running_flag, update_callback):
                         break
         except Exception as e:
             print("[App] ⚠️ Lỗi kết nối Pi4:", e)
+    server.close()
