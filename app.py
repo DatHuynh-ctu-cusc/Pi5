@@ -1,5 +1,6 @@
 # app.py
-import tkinter as tk
+import os
+import tkinter as tk 
 import threading
 import numpy as np
 from encoder_handler import positions, get_robot_pose
@@ -7,6 +8,9 @@ from lidar_map_drawer import update_ogm_map, draw_ogm_on_canvas, draw_zoomed_lid
 from PIL import Image, ImageTk
 import time
 import math
+from tkinter import filedialog
+from PIL import Image, ImageTk
+
 
 
 class SimpleApp:
@@ -53,6 +57,70 @@ class SimpleApp:
         self.robot_pose = (5.0, 5.0, 0.0)
 
         self.show_home()
+        os.makedirs("/home/dat/LuanVan/maps", exist_ok=True)
+        self.loaded_map_image = None  # ảnh bản đồ đã chọn
+
+
+    def save_scan_map(self):
+        try:
+            img_size = self.ogm_map_scan.shape[0]
+            img = Image.new("RGB", (img_size, img_size), "gray")
+            pixels = img.load()
+            for y in range(img_size):
+                for x in range(img_size):
+                    v = self.ogm_map_scan[y, x]
+                    if v == 1:
+                        pixels[x, y] = (255, 255, 255)
+                    elif v == 2:
+                        pixels[x, y] = (0, 0, 0)
+            timestamp = time.strftime("%Y%m%d_%H%M%S")
+            path = f"/home/dat/LuanVan/maps/map_{timestamp}.png"
+            img.save(path)
+            print(f"[App] ✅ Đã lưu bản đồ quét tại: {path}")
+            self.update_folder_tab()  # Cập nhật lại danh sách
+        except Exception as e:
+            print("[App] ❌ Lỗi khi lưu bản đồ quét:", e)
+
+
+    def clear_scan_map(self):
+            self.ogm_map_scan.fill(0)
+            if self.scan_canvas and self.scan_canvas.winfo_exists():
+                draw_ogm_scan_canvas(self.scan_canvas, self.ogm_map_scan, self.robot_pose)
+            print("[App] 🔄 Đã làm mới bản đồ quét")
+
+    def update_folder_tab(self):
+        if not hasattr(self, 'folder_frame') or not self.folder_frame:
+            return
+
+        for widget in self.folder_frame.winfo_children():
+            widget.destroy()
+
+        try:
+            files = sorted(
+                [f for f in os.listdir("/home/dat/LuanVan/maps") if f.endswith(".png")],
+                reverse=True
+            )
+            if not files:
+                tk.Label(self.folder_frame, text="❌ Chưa có bản đồ nào", bg="white", font=("Arial", 12)).pack()
+                return
+
+            for fname in files:
+                path = os.path.join("/home/dat/LuanVan/maps", fname)
+                frame = tk.Frame(self.folder_frame, bg="white", padx=5, pady=5)
+                frame.pack(anchor="w", fill="x")
+
+                img = Image.open(path).resize((100, 100))
+                img_tk = ImageTk.PhotoImage(img)
+                lbl_img = tk.Label(frame, image=img_tk)
+                lbl_img.image = img_tk
+                lbl_img.pack(side="left")
+
+                lbl_name = tk.Label(frame, text=fname, bg="white", font=("Arial", 11))
+                lbl_name.pack(side="left", padx=10)
+        except Exception as e:
+            print("[App] ❌ Lỗi khi cập nhật thư mục bản đồ:", e)
+
+
 
     def add_sidebar_button(self, label, command):
         btn = tk.Button(self.sidebar, text=label, bg="#34495e", fg="white", font=("Arial", 12), height=2, anchor="w", padx=20, relief="flat")
@@ -102,6 +170,34 @@ class SimpleApp:
         self.path_label = tk.Label(btn_frame, text="Số đường đi: 0", bg="white", font=("Arial", 11))
         self.path_label.pack(pady=10)
 
+        self.choose_map_btn = tk.Button(btn_frame, text="Chọn bản đồ", width=15, command=self.choose_map_file)
+        self.choose_map_btn.pack(pady=5)
+
+
+        if self.loaded_map_image:
+            try:
+                img = self.loaded_map_image.resize((self.main_map_canvas.winfo_width(), self.main_map_canvas.winfo_height()), Image.NEAREST)
+                tk_img = ImageTk.PhotoImage(img)
+                self.main_map_canvas.image = tk_img
+                self.main_map_canvas.create_image(0, 0, anchor="nw", image=tk_img)
+            except Exception as e:
+                print("[App] ❌ Không thể hiển thị bản đồ đã chọn:", e)
+
+    def choose_map_file(self):
+        file_path = filedialog.askopenfilename(
+            title="Chọn file bản đồ",
+            filetypes=[("PNG files", "*.png"), ("All files", "*.*")]
+        )
+        if file_path:
+            try:
+                from PIL import Image
+                self.loaded_map_image = Image.open(file_path)
+                self.show_map()  # cập nhật lại canvas hiển thị
+                print(f"[App] ✅ Đã chọn bản đồ: {file_path}")
+            except Exception as e:
+                print(f"[App] ❌ Không thể mở bản đồ: {e}")
+
+
     def show_scan_map(self):
         for widget in self.content.winfo_children():
             widget.destroy()
@@ -109,8 +205,20 @@ class SimpleApp:
         frame = tk.Frame(self.content, bg="white")
         frame.pack(fill="both", expand=True)
 
+        # === Canvas bản đồ quét ===
         self.scan_canvas = tk.Canvas(frame, bg="white")
         self.scan_canvas.pack(expand=True, fill="both")
+
+        # === Nút chức năng ===
+        btn_frame = tk.Frame(frame, bg="white")
+        btn_frame.pack(fill="x", pady=10)
+
+        save_btn = tk.Button(btn_frame, text="💾 Lưu bản đồ", font=("Arial", 11), command=self.save_scan_map)
+        save_btn.pack(side="left", padx=10)
+
+        clear_btn = tk.Button(btn_frame, text="🔄 Làm mới", font=("Arial", 11), command=self.clear_scan_map)
+        clear_btn.pack(side="left", padx=10)
+
 
     def show_data(self):
         for widget in self.content.winfo_children():
@@ -130,7 +238,36 @@ class SimpleApp:
         self.recv_text.pack(fill="x", padx=20)
 
     def show_folder(self):
-        self.update_content("\U0001F4C2 Thư mục lưu file")
+        for widget in self.content.winfo_children():
+            widget.destroy()
+
+        title = tk.Label(self.content, text="\U0001F4C2 BẢN ĐỒ ĐÃ LƯU", font=("Arial", 20), bg="white")
+        title.pack(pady=10)
+
+        load_btn = tk.Button(self.content, text="🗂 Chọn bản đồ từ thư mục", command=self.load_map_from_file)
+        load_btn.pack(pady=10)
+
+        self.map_preview_canvas = tk.Canvas(self.content, bg="white", width=400, height=400)
+        self.map_preview_canvas.pack(pady=10)
+
+    def load_map_from_file(self):
+        file_path = filedialog.askopenfilename(
+            initialdir="/home/dat/LuanVan/maps",
+            title="Chọn bản đồ",
+            filetypes=[("PNG files", "*.png")]
+        )
+        if file_path:
+            try:
+                img = Image.open(file_path)
+                self.loaded_map_image = img  # Lưu lại ảnh để dùng lại
+                img_resized = img.resize((400, 400), Image.NEAREST)
+                tk_img = ImageTk.PhotoImage(img_resized)
+                self.map_preview_canvas.image = tk_img
+                self.map_preview_canvas.delete("all")
+                self.map_preview_canvas.create_image(0, 0, anchor="nw", image=tk_img)
+                print(f"[App] ✅ Đã chọn bản đồ: {file_path}")
+            except Exception as e:
+                print("[App] ❌ Lỗi khi tải ảnh bản đồ:", e)
 
     def show_robot(self):
         for widget in self.content.winfo_children():
