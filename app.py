@@ -1,253 +1,207 @@
+# app.py
 import tkinter as tk
-import threading
-import numpy as np
 from PIL import Image, ImageTk
-import os
-import time
-from tkinter import filedialog
+from lidar_map_drawer import draw_lidar_on_canvas  # ✅ Import đúng hàm vẽ bản đồ
 
 class SimpleApp:
     def __init__(self, root):
         self.root = root
         self.root.title("App Robot")
-        self.root.geometry("1100x700")
+        self.root.geometry("900x600")
 
-        self.running = threading.Event()
-        self.running.set()
-
-        self.sidebar = tk.Frame(root, width=250, bg="#2c3e50")
+        self.sidebar = tk.Frame(root, bg="#2c3e50", width=200)
         self.sidebar.pack(side="left", fill="y")
         self.sidebar.pack_propagate(False)
 
+        tk.Label(self.sidebar, text="📋 MENU", bg="#2c3e50", fg="white",
+                 font=("Arial", 16, "bold")).pack(pady=20)
+
         self.buttons = []
         self.active_button = None
-
-        tk.Label(self.sidebar, text="\U0001F4CB MENU", bg="#2c3e50", fg="white", font=("Arial", 14, "bold")).pack(pady=20)
-        self.add_sidebar_button("\U0001F3E1 Trang chu", self.show_home)
-        self.add_sidebar_button("\U0001F6F9 Ban do", self.show_map)
-        self.add_sidebar_button("\U0001F4F6 Quet ban do", self.show_scan_map)
-        self.add_sidebar_button("\U0001F4BE Du lieu", self.show_data)
-        self.add_sidebar_button("\U0001F4C2 Thu muc", self.show_folder)
-        self.add_sidebar_button("\U0001F916 Robot", self.show_robot)
-        self.add_sidebar_button("\U0001F6E0 Cai dat", self.show_settings)
-
-        self.content = tk.Frame(root, bg="white")
-        self.content.pack(side="right", expand=True, fill="both")
-
-        self.encoder_labels = {}
-        self.main_map_canvas = None
-        self.zoom_map_canvas = None
-        self.path_label = None
         self.send_text = None
         self.recv_text = None
 
-        self.map_size = 10.0
-        self.resolution = 0.1
-        self.cells = int(self.map_size / self.resolution)
-        self.ogm_map = np.ones((self.cells, self.cells), dtype=np.uint8) * 255
-        self.ogm_map_scan = np.zeros((self.cells, self.cells), dtype=np.uint8)
-        self.robot_pose = (5.0, 5.0, 0.0)
+        self.add_sidebar_button("🏠 Trang chu", self.show_home)
+        self.add_sidebar_button("🗺️ Ban do", self.show_map)
+        self.add_sidebar_button("📶 Quet ban do", self.show_scan_map)
+        self.add_sidebar_button("💾 Du lieu", self.show_data)
+        self.add_sidebar_button("📁 Thu muc", self.show_folder)
+        self.add_sidebar_button("🤖 Robot", self.show_robot)
+        self.add_sidebar_button("🛠️ Cai dat", self.show_settings)
 
-        self.scan_map_canvas = tk.Canvas(self.content, bg="white")
-        self.scan_map_canvas.pack_forget()
+        self.main_content = tk.Frame(root, bg="white")
+        self.main_content.pack(side="left", fill="both", expand=True)
 
-        self.loaded_map_image = None
-        os.makedirs("/home/dat/LuanVan/maps", exist_ok=True)
-
-        self.show_home()
+    def clear_main_content(self):
+        for widget in self.main_content.winfo_children():
+            widget.destroy()
 
     def add_sidebar_button(self, text, command):
-        btn = tk.Button(self.sidebar, text=text, bg="#34495e", fg="white", font=("Arial", 12, "bold"), relief="flat", command=command)
-        btn.pack(fill="x", pady=5, padx=10)
+        btn = tk.Label(self.sidebar, text=text, bg="#34495e", fg="white",
+                       font=("Arial", 12), padx=10, pady=8, cursor="hand2")
+        btn.pack(fill="x", padx=15, pady=4)
         btn.bind("<Enter>", lambda e: btn.config(bg="#1abc9c"))
         btn.bind("<Leave>", lambda e: btn.config(bg="#34495e"))
+        btn.bind("<Button-1>", lambda e: command())
         self.buttons.append(btn)
 
-    def clear_content(self):
-        for widget in self.content.winfo_children():
-            widget.pack_forget()
-
     def show_home(self):
-        self.clear_content()
-        tk.Label(self.content, text="\U0001F3E1 TRANG CHỦ", font=("Arial", 20), bg="white").pack(pady=50)
-
-    def update_lidar_map(self, lidar_data):
+        self.clear_main_content()
+        tk.Label(self.main_content, text="ĐỒ ÁN TỐT NGHIỆP",
+                 font=("Arial", 24, "bold"), bg="white", fg="#2c3e50").pack(pady=10)
         try:
-            if not self.scan_map_canvas or not self.scan_map_canvas.winfo_exists():
-                return
-
-            angle = lidar_data.get("angle_min", 0)
-            increment = lidar_data.get("angle_increment", 0.01)
-            ranges = lidar_data.get("ranges", [])
-            cx, cy = 50, 50
-            max_range = 6.0
-
-            for r in ranges:
-                if 0.05 < r < max_range:
-                    x = r * np.cos(angle)
-                    y = r * np.sin(angle)
-                    gx = int(cx + x / self.resolution)
-                    gy = int(cy + y / self.resolution)
-                    if 0 <= gx < 100 and 0 <= gy < 100:
-                        self.ogm_map_scan[gy][gx] = 2
-                    angle += increment
-
-            img = Image.fromarray((self.ogm_map_scan * 127).astype(np.uint8), mode="L")
-            img = img.resize((self.scan_map_canvas.winfo_width(), self.scan_map_canvas.winfo_height()))
-            tk_img = ImageTk.PhotoImage(img)
-            self.scan_map_canvas.create_image(0, 0, anchor="nw", image=tk_img)
-            self.scan_map_canvas.image = tk_img
-
+            img = Image.open("bach_khoa.jpg")
+            img = img.resize((600, 300), Image.Resampling.LANCZOS)
+            self.home_image = ImageTk.PhotoImage(img)
+            tk.Label(self.main_content, image=self.home_image, bg="white").pack(pady=10)
         except Exception as e:
-            print("[App] ⚠️ Lỗi khi cập nhật LiDAR map:", e)
+            tk.Label(self.main_content, text=f"Lỗi ảnh: {e}", fg="red", bg="white").pack()
 
+        topic_label = tk.Label(self.main_content,
+                               text="HỆ THỐNG XE TỰ HÀNH TRÁNH VẬT CẢN DÙNG LIDAR",
+                               font=("Arial", 14, "bold"), bg="white", fg="#34495e")
+        topic_label.pack(pady=(10, 2))
+
+        bottom_frame = tk.Frame(self.main_content, bg="white")
+        bottom_frame.pack(fill="x", padx=30, pady=(30, 10))
+
+        gvhd_frame = tk.Frame(bottom_frame, bg="white")
+        gvhd_frame.pack(side="left", anchor="nw", padx=(0, 30))
+        tk.Label(gvhd_frame, text="GVHD:", font=("Arial", 11, "bold"), bg="white", anchor="w", fg="gray30").pack(anchor="w")
+        tk.Label(gvhd_frame, text="Trương Phong Tuyên", font=("Arial", 11), bg="white", anchor="w", fg="gray30").pack(anchor="w")
+
+        student_frame = tk.Frame(bottom_frame, bg="white")
+        student_frame.pack(side="right", anchor="ne", padx=(30, 0))
+
+        sv1_frame = tk.Frame(student_frame, bg="white")
+        sv1_frame.pack(anchor="w", pady=(0, 10))
+        tk.Label(sv1_frame, text="Sinh viên 1: Huỳnh Tuấn Đạt", font=("Arial", 11), bg="white", anchor="w", fg="gray30").pack(anchor="w")
+        tk.Label(sv1_frame, text="MSSV: B2016890", font=("Arial", 11), bg="white", anchor="w", fg="gray30").pack(anchor="w")
+        tk.Label(sv1_frame, text="Lớp: Kỹ Thuật Máy Tính – K46", font=("Arial", 11), bg="white", anchor="w", fg="gray30").pack(anchor="w")
+
+        sv2_frame = tk.Frame(student_frame, bg="white")
+        sv2_frame.pack(anchor="w")
+        tk.Label(sv2_frame, text="Sinh viên 2: Nguyễn Phước Hoày", font=("Arial", 11), bg="white", anchor="w", fg="gray30").pack(anchor="w")
+        tk.Label(sv2_frame, text="MSSV: B200000", font=("Arial", 11), bg="white", anchor="w", fg="gray30").pack(anchor="w")
+        tk.Label(sv2_frame, text="Lớp: Kỹ Thuật Máy Tính – K46", font=("Arial", 11), bg="white", anchor="w", fg="gray30").pack(anchor="w")
 
     def show_map(self):
-        self.clear_content()
+        self.clear_main_content()
+        tk.Label(self.main_content, text="BẢN ĐỒ HOẠT ĐỘNG CỦA ROBOT",
+                 font=("Arial", 20, "bold"), bg="white", fg="#2c3e50").pack(pady=10)
+        self.main_map = tk.Canvas(self.main_content, width=680, height=300, bg="#ecf0f1", highlightbackground="#bdc3c7")
+        self.main_map.pack(pady=5)
 
-        self.main_map_canvas = tk.Canvas(self.content, bg="white")
-        self.main_map_canvas.pack(side="top", expand=True, fill="both")
+        bottom_frame = tk.Frame(self.main_content, bg="white")
+        bottom_frame.pack(fill="x", padx=10, pady=10)
 
-        bottom_frame = tk.Frame(self.content, bg="white")
-        bottom_frame.pack(side="bottom", fill="x", padx=10, pady=10)
+        self.sub_map = tk.Canvas(bottom_frame, width=300, height=200, bg="#dfe6e9", highlightbackground="#bdc3c7")
+        self.sub_map.pack(side="left", padx=5)
 
-        self.zoom_map_canvas = tk.Canvas(bottom_frame, width=200, height=200, bg="lightgray")
-        self.zoom_map_canvas.pack(side="left", padx=10)
+        control_frame = tk.Frame(bottom_frame, bg="white")
+        control_frame.pack(side="left", fill="both", expand=True, padx=10)
 
-        button_frame = tk.Frame(bottom_frame, bg="white")
-        button_frame.pack(side="left", padx=20)
+        tk.Button(control_frame, text="🗂 Chọn bản đồ", font=("Arial", 11), width=20, command=self.select_map).pack(pady=4)
+        tk.Button(control_frame, text="🗑 Xoá bản đồ", font=("Arial", 11), width=20, command=self.clear_map).pack(pady=4)
+        tk.Button(control_frame, text="✏️ Vẽ đường đi", font=("Arial", 11), width=20, command=self.draw_path).pack(pady=4)
+        tk.Button(control_frame, text="❌ Xoá đường đi", font=("Arial", 11), width=20, command=self.clear_path).pack(pady=4)
 
-        select_btn = tk.Button(button_frame, text="\U0001F4C2 Chọn bản đồ", font=("Arial", 11), command=self.select_map_file)
-        select_btn.pack(pady=5, fill="x")
-
-        draw_btn = tk.Button(button_frame, text="✏️ Vẽ đường đi", font=("Arial", 11), command=self.enable_draw_path)
-        draw_btn.pack(pady=5, fill="x")
-
-        clear_path_btn = tk.Button(button_frame, text="❌ Xóa đường đi", font=("Arial", 11), command=self.clear_drawn_path)
-        clear_path_btn.pack(pady=5, fill="x")
-
-        clear_map_btn = tk.Button(button_frame, text="\U0001F5D1 Xóa bản đồ", font=("Arial", 11), command=self.clear_main_map)
-        clear_map_btn.pack(pady=5, fill="x")
+        self.robot_status_label = tk.Label(control_frame, text="Trạng thái: Di chuyển", font=("Arial", 11, "bold"),
+                                           bg="green", fg="white", width=20)
+        self.robot_status_label.pack(pady=10)
 
     def show_scan_map(self):
-        self.clear_content()
-        self.scan_map_canvas.pack(expand=True, fill="both")
+        self.clear_main_content()
+        tk.Label(self.main_content, text="CHẾ ĐỘ QUÉT BẢN ĐỒ", font=("Arial", 20, "bold"), bg="white", fg="#2c3e50").pack(pady=10)
 
-        btn_frame = tk.Frame(self.content, bg="white")
-        btn_frame.pack(fill="x", pady=10)
+        # Canvas để vẽ bản đồ quét
+        self.scan_canvas = tk.Canvas(self.main_content, width=700, height=400, bg="#ecf0f1", highlightbackground="#bdc3c7")
+        self.scan_canvas.pack(pady=5)
 
-        save_btn = tk.Button(btn_frame, text="\U0001F4BE Lưu bản đồ", font=("Arial", 11), command=self.save_scan_map)
-        save_btn.pack(side="left", padx=10)
+        button_frame = tk.Frame(self.main_content, bg="white")
+        button_frame.pack(fill="x", pady=(15, 10))
 
-        clear_btn = tk.Button(btn_frame, text="\U0001F504 Làm mới", font=("Arial", 11), command=self.clear_scan_map)
-        clear_btn.pack(side="left", padx=10)
+        tk.Button(button_frame, text="▶️ Bắt đầu", font=("Arial", 11), width=15, command=self.start_scan).pack(side="left", padx=10)
+        tk.Button(button_frame, text="🔄 Làm mới bản đồ", font=("Arial", 11), width=18, command=self.refresh_scan_map).pack(side="left", padx=10)
+        tk.Button(button_frame, text="💾 Lưu bản đồ", font=("Arial", 11), width=15, command=self.save_scan_map).pack(side="left", padx=10)
 
-    def show_data(self):
-        self.clear_content()
-        title = tk.Label(self.content, text="\U0001F4BE DỮ LIỆU", font=("Arial", 20, "bold"), bg="white", fg="#2c3e50")
-        title.pack(pady=10)
+        self.scan_status_label = tk.Label(button_frame, text="Đang chờ...", width=20,
+                                          font=("Arial", 11, "bold"), bg="gray", fg="white")
+        self.scan_status_label.pack(side="left", padx=20)
 
-        container = tk.Frame(self.content, bg="white")
-        container.pack(fill="both", expand=True, padx=20, pady=10)
+    def update_lidar_map(self, lidar_data):
+        if not hasattr(self, "scan_canvas") or not self.scan_canvas.winfo_exists():
+            return
+        if not isinstance(lidar_data, dict) or "ranges" not in lidar_data or not lidar_data["ranges"]:
+            print("[App] ❌ Dữ liệu LiDAR không hợp lệ hoặc rỗng.")
+            return
+        try:
+            print(f"[App] ✅ Cập nhật bản đồ với {len(lidar_data['ranges'])} điểm")
+            draw_lidar_on_canvas(self.scan_canvas, lidar_data)
+        except Exception as e:
+            print("[App] ⚠️ Lỗi khi vẽ bản đồ LiDAR:", e)
 
-        send_frame = tk.LabelFrame(container, text="\U0001F4E4 DỮ LIỆU GỬI", font=("Arial", 12, "bold"), bg="white", fg="#34495e", padx=10, pady=5)
-        send_frame.pack(side="left", fill="both", expand=True, padx=10)
+    def start_scan(self):
+        print("▶️ Bắt đầu quét bản đồ...")
+        self.scan_status_label.config(text="Đang quét...", bg="red")
 
-        self.send_text = tk.Text(send_frame, height=25, bg="#ecf0f1", font=("Courier", 10))
-        self.send_text.pack(fill="both", expand=True)
-
-        recv_frame = tk.LabelFrame(container, text="\U0001F4E5 DỮ LIỆU NHẬN", font=("Arial", 12, "bold"), bg="white", fg="#34495e", padx=10, pady=5)
-        recv_frame.pack(side="right", fill="both", expand=True, padx=10)
-
-        self.recv_text = tk.Text(recv_frame, height=25, bg="#ecf0f1", font=("Courier", 10))
-        self.recv_text.pack(fill="both", expand=True)
-
-    def show_folder(self):
-        self.clear_content()
-        tk.Label(self.content, text="\U0001F4C2 THƯ MỤC", font=("Arial", 20), bg="white").pack(pady=50)
-
-    def show_robot(self):
-        self.clear_content()
-        tk.Label(self.content, text="\U0001F916 ROBOT", font=("Arial", 20, "bold"), bg="white").pack(pady=10)
-
-        canvas = tk.Canvas(self.content, width=400, height=400, bg="white", highlightthickness=0)
-        canvas.pack()
-
-        canvas.create_rectangle(100, 100, 300, 300, fill="#ecf0f1", outline="black", width=2)
-        positions = {
-            "E1": (90, 90, "Trái Trước"),
-            "E2": (90, 310, "Trái Sau"),
-            "E3": (310, 90, "Phải Trước"),
-            "E4": (310, 310, "Phải Sau")
-        }
-        self.encoder_labels.clear()
-        for key, (x, y, label) in positions.items():
-            canvas.create_oval(x-10, y-10, x+10, y+10, fill="black")
-            canvas.create_text(x, y-15, text=label, font=("Arial", 9, "bold"))
-            lbl = tk.Label(self.content, text=f"{key}: 0", bg="white", font=("Arial", 10))
-            lbl.pack()
-            self.encoder_labels[key] = lbl
-
-        self.update_robot_ui()
-
-    def show_settings(self):
-        self.clear_content()
-        tk.Label(self.content, text="\U0001F6E0 CÀI ĐẶT", font=("Arial", 20), bg="white").pack(pady=50)
-
-    def select_map_file(self):
-        path = filedialog.askopenfilename(initialdir="/home/dat/LuanVan/maps", filetypes=[("PNG Files", "*.png")])
-        if path:
-            try:
-                img = Image.open(path).convert("L")
-                img = img.resize((self.ogm_map.shape[1], self.ogm_map.shape[0]))
-                self.ogm_map = np.array(img)
-                self.main_map_canvas.delete("all")
-                self.draw_main_map()
-                print("[App] ✅ Đã tải bản đồ:", path)
-            except Exception as e:
-                print("[App] ❌ Lỗi khi tải bản đồ:", e)
-
-    def enable_draw_path(self):
-        self.main_map_canvas.bind("<Button-1>", self.draw_path_point)
-        print("[App] ✏️ Chế độ vẽ đường đi được kích hoạt")
-
-    def draw_path_point(self, event):
-        x, y = event.x, event.y
-        self.main_map_canvas.create_oval(x-3, y-3, x+3, y+3, fill="red")
-
-    def clear_drawn_path(self):
-        self.main_map_canvas.delete("all")
-        self.draw_main_map()
-        print("[App] ❌ Đã xoá đường đi")
-
-    def clear_main_map(self):
-        self.ogm_map.fill(255)
-        self.main_map_canvas.delete("all")
-        print("[App] 🗑️ Đã xoá bản đồ chính")
-
-    def draw_main_map(self):
-        img = Image.fromarray((self.ogm_map * 1).astype(np.uint8), mode="L")
-        img = img.resize((self.main_map_canvas.winfo_width(), self.main_map_canvas.winfo_height()))
-        tk_img = ImageTk.PhotoImage(img)
-        self.main_map_canvas.create_image(0, 0, anchor="nw", image=tk_img)
-        self.main_map_canvas.image = tk_img
-
-    def clear_scan_map(self):
-        self.ogm_map_scan.fill(0)
-        self.scan_map_canvas.delete("all")
-        print("[App] 🔄 Đã làm mới bản đồ quét")
+    def refresh_scan_map(self):
+        print("🔄 Làm mới bản đồ...")
+        self.scan_canvas.delete("all")
+        self.scan_status_label.config(text="Đang chờ...", bg="gray")
 
     def save_scan_map(self):
-        try:
-            img = Image.fromarray((self.ogm_map_scan * 127).astype(np.uint8), mode="L")
-            path = f"/home/dat/LuanVan/maps/map_{time.strftime('%Y%m%d_%H%M%S')}.png"
-            img.save(path)
-            print("[App] ✅ Đã lưu bản đồ quét tại:", path)
-        except Exception as e:
-            print("[App] ❌ Không thể lưu bản đồ quét:", e)
+        print("💾 Đã lưu bản đồ!")
+        self.scan_status_label.config(text="Hoàn thành", bg="green")
 
-    def update_robot_ui(self):
-        encoder_data = getattr(self, "encoder_data", {"E1": 0, "E2": 0, "E3": 0, "E4": 0})
-        for key, lbl in self.encoder_labels.items():
-            value = encoder_data.get(key, 0)
-            lbl.config(text=f"{key}: {value}")
+    def select_map(self):
+        print("🗂 Chọn bản đồ từ thư mục")
+
+    def clear_map(self):
+        print("🗑 Đã xoá bản đồ!")
+
+    def draw_path(self):
+        print("✏️ Vẽ đường đi")
+
+    def clear_path(self):
+        print("❌ Đã xoá đường đi")
+
+    def update_robot_status(self, status):
+        if status == "moving":
+            self.robot_status_label.config(text="Trạng thái: Di chuyển", bg="green")
+        elif status == "stuck":
+            self.robot_status_label.config(text="Trạng thái: Mắc kẹt", bg="red")
+
+    def show_data(self):
+        self.clear_main_content()
+        tk.Label(self.main_content, text="DỮ LIỆU TRAO ĐỔI", font=("Arial", 20, "bold"), bg="white", fg="#2c3e50").pack(pady=(15, 10))
+
+        recv_frame = tk.Frame(self.main_content, bg="white")
+        recv_frame.pack(pady=10, padx=20, fill="x")
+        tk.Label(recv_frame, text="Dữ liệu nhận", font=("Arial", 12, "bold"), bg="white", anchor="w").pack(anchor="w")
+        self.recv_text = tk.Text(recv_frame, height=10, width=90, bg="#ecf0f1", relief="solid", bd=1, font=("Courier", 10))
+        self.recv_text.pack(pady=5, fill="x")
+
+        send_frame = tk.Frame(self.main_content, bg="white")
+        send_frame.pack(pady=10, padx=20, fill="x")
+        tk.Label(send_frame, text="Dữ liệu gửi", font=("Arial", 12, "bold"), bg="white", anchor="w").pack(anchor="w")
+        self.send_text = tk.Text(send_frame, height=10, width=90, bg="#ecf0f1", relief="solid", bd=1, font=("Courier", 10))
+        self.send_text.pack(pady=5, fill="x")
+
+    def show_folder(self):
+        self.clear_main_content()
+        tk.Label(self.main_content, text="Danh sách thư mục", font=("Arial", 16), bg="white").pack(pady=50)
+
+    def show_robot(self):
+        self.clear_main_content()
+        tk.Label(self.main_content, text="Thông tin Robot", font=("Arial", 16), bg="white").pack(pady=50)
+
+    def show_settings(self):
+        self.clear_main_content()
+        tk.Label(self.main_content, text="Cài đặt hệ thống", font=("Arial", 16), bg="white").pack(pady=50)
+
+# ==== Run app ====
+if __name__ == "__main__":
+    root = tk.Tk()
+    app = SimpleApp(root)
+    root.mainloop()

@@ -1,3 +1,4 @@
+# lidar_receiver.py
 import socket
 import json
 
@@ -41,14 +42,11 @@ def receive_lidar(running_flag, update_callback, get_text_widget=None):
                                 if callable(update_callback):
                                     update_callback(parsed)
 
-                                # Ghi JSON vào GUI nếu có
+                                # Ghi log vào GUI nếu có
                                 if get_text_widget:
                                     text_widget = get_text_widget()
                                     if text_widget and text_widget.winfo_exists():
-                                        try:
-                                            text_widget.after(0, lambda: safe_insert_json(text_widget, parsed))
-                                        except:
-                                            pass
+                                        text_widget.after(0, lambda: safe_insert_json(text_widget, parsed))
 
                             except json.JSONDecodeError:
                                 print("[App] ❌ Không phải JSON:", line)
