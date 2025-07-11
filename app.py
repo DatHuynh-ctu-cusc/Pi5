@@ -1,7 +1,12 @@
 # app.py
 import tkinter as tk
 from PIL import Image, ImageTk
-from lidar_map_drawer import draw_lidar_on_canvas  # ✅ Import đúng hàm vẽ bản đồ
+from lidar_map_drawer import draw_lidar_on_canvas, draw_zoomed_lidar_map, reset_lidar_map  # ✅ Import đúng hàm vẽ bản đồ
+import datetime
+import os
+from tkinter import messagebox , filedialog
+
+
 
 class SimpleApp:
     def __init__(self, root):
@@ -31,6 +36,9 @@ class SimpleApp:
 
         self.main_content = tk.Frame(root, bg="white")
         self.main_content.pack(side="left", fill="both", expand=True)
+                # Hiển thị mặc định là Trang chủ khi mở app
+        self.show_home()
+
 
     def clear_main_content(self):
         for widget in self.main_content.winfo_children():
@@ -130,16 +138,25 @@ class SimpleApp:
         self.scan_status_label.pack(side="left", padx=20)
 
     def update_lidar_map(self, lidar_data):
-        if not hasattr(self, "scan_canvas") or not self.scan_canvas.winfo_exists():
-            return
         if not isinstance(lidar_data, dict) or "ranges" not in lidar_data or not lidar_data["ranges"]:
             print("[App] ❌ Dữ liệu LiDAR không hợp lệ hoặc rỗng.")
             return
+
         try:
             print(f"[App] ✅ Cập nhật bản đồ với {len(lidar_data['ranges'])} điểm")
-            draw_lidar_on_canvas(self.scan_canvas, lidar_data)
+
+            # Vẽ bản đồ lớn nếu canvas quét tồn tại
+            if hasattr(self, "scan_canvas") and self.scan_canvas.winfo_exists():
+                draw_lidar_on_canvas(self.scan_canvas, lidar_data)
+
+            # Vẽ bản đồ phụ nếu tồn tại sub_map (chỉ các điểm trong 2m)
+            if hasattr(self, "sub_map") and self.sub_map.winfo_exists():
+                from lidar_map_drawer import draw_zoomed_lidar_map  # đảm bảo hàm này tồn tại
+                draw_zoomed_lidar_map(self.sub_map, lidar_data, radius=2.0)
+
         except Exception as e:
             print("[App] ⚠️ Lỗi khi vẽ bản đồ LiDAR:", e)
+            
 
     def start_scan(self):
         print("▶️ Bắt đầu quét bản đồ...")
@@ -147,7 +164,7 @@ class SimpleApp:
 
     def refresh_scan_map(self):
         print("🔄 Làm mới bản đồ...")
-        self.scan_canvas.delete("all")
+        reset_lidar_map(self.scan_canvas)  # ✅ reset ảnh tích lũy
         self.scan_status_label.config(text="Đang chờ...", bg="gray")
 
     def save_scan_map(self):
@@ -155,7 +172,16 @@ class SimpleApp:
         self.scan_status_label.config(text="Hoàn thành", bg="green")
 
     def select_map(self):
-        print("🗂 Chọn bản đồ từ thư mục")
+        file_path = filedialog.askopenfilename(filetypes=[("PNG files", "*.png")])
+        if file_path:
+            try:
+                image = Image.open(file_path)
+                image = image.resize((680, 300), Image.Resampling.LANCZOS)
+                self.map_image = ImageTk.PhotoImage(image)
+                self.main_map.create_image(0, 0, anchor="nw", image=self.map_image)
+                print(f"🖼 Đã chọn bản đồ: {file_path}")
+            except Exception as e:
+                print("❌ Lỗi khi mở bản đồ:", e)
 
     def clear_map(self):
         print("🗑 Đã xoá bản đồ!")
@@ -171,6 +197,24 @@ class SimpleApp:
             self.robot_status_label.config(text="Trạng thái: Di chuyển", bg="green")
         elif status == "stuck":
             self.robot_status_label.config(text="Trạng thái: Mắc kẹt", bg="red")
+
+    def save_scan_map(self):
+        try:
+            print("💾 Đang lưu bản đồ...")
+
+            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
+            ps_file = f"scan_map_{timestamp}.eps"
+            png_file = f"scan_map_{timestamp}.png"
+
+            self.scan_canvas.postscript(file=ps_file)
+            img = Image.open(ps_file)
+            img.save(png_file, 'png')
+
+            self.scan_status_label.config(text="Đã lưu thành công", bg="green")
+            print(f"✅ Lưu bản đồ thành công vào {png_file}")
+        except Exception as e:
+            print("❌ Lỗi khi lưu bản đồ:", e)
+            self.scan_status_label.config(text="Lỗi khi lưu", bg="red")
 
     def show_data(self):
         self.clear_main_content()
@@ -190,7 +234,70 @@ class SimpleApp:
 
     def show_folder(self):
         self.clear_main_content()
-        tk.Label(self.main_content, text="Danh sách thư mục", font=("Arial", 16), bg="white").pack(pady=50)
+        tk.Label(self.main_content, text="🗂 DANH SÁCH BẢN ĐỒ ĐÃ LƯU", font=("Arial", 18, "bold"), bg="white", fg="#2c3e50").pack(pady=10)
+
+        image_frame = tk.Frame(self.main_content, bg="white")
+        image_frame.pack(pady=5, padx=10, fill="both", expand=True)
+
+        # Nút xoá tất cả bản đồ
+        tk.Button(self.main_content, text="🗑 Xoá tất cả bản đồ đã lưu", font=("Arial", 11), bg="#e74c3c", fg="white",
+                command=self.delete_all_maps).pack(pady=(5, 15))
+
+        png_files = sorted([f for f in os.listdir(".") if f.startswith("scan_map_") and f.endswith(".png")], reverse=True)
+
+        if not png_files:
+            tk.Label(image_frame, text="⚠️ Không có bản đồ nào được lưu.", font=("Arial", 12), bg="white", fg="red").pack()
+            return
+
+        for i, filename in enumerate(png_files[:3]):
+            try:
+                img = Image.open(filename)
+                img = img.resize((250, 200), Image.Resampling.LANCZOS)
+                photo = ImageTk.PhotoImage(img)
+
+                panel = tk.Label(image_frame, image=photo, bg="white", cursor="hand2")
+                panel.image = photo
+                panel.grid(row=0, column=i, padx=10, pady=5)
+
+                label = tk.Label(image_frame, text=filename, font=("Arial", 10), bg="white")
+                label.grid(row=1, column=i)
+
+                # Bind click để mở ảnh
+                panel.bind("<Button-1>", lambda e, path=filename: self.open_full_image(path))
+
+            except Exception as e:
+                print(f"[Folder] ❌ Lỗi khi tải ảnh {filename}:", e)
+
+    def open_full_image(self, path):
+        try:
+            top = tk.Toplevel(self.root)
+            top.title(f"🖼 Xem bản đồ: {path}")
+
+            img = Image.open(path)
+            img = img.resize((800, 600), Image.Resampling.LANCZOS)
+            photo = ImageTk.PhotoImage(img)
+
+            lbl = tk.Label(top, image=photo)
+            lbl.image = photo
+            lbl.pack(padx=10, pady=10)
+        except Exception as e:
+            messagebox.showerror("Lỗi", f"Không thể mở ảnh: {e}")
+
+    def delete_all_maps(self):
+        confirm = messagebox.askyesno("Xác nhận xoá", "Bạn có chắc chắn muốn xoá tất cả bản đồ?")
+        if confirm:
+            deleted = 0
+            for f in os.listdir("."):
+                if f.startswith("scan_map_") and f.endswith(".png"):
+                    try:
+                        os.remove(f)
+                        deleted += 1
+                    except Exception as e:
+                        print(f"Lỗi khi xoá {f}: {e}")
+            messagebox.showinfo("Đã xoá", f"Đã xoá {deleted} bản đồ.")
+            self.show_folder()
+
+
 
     def show_robot(self):
         self.clear_main_content()
