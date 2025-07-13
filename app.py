@@ -161,6 +161,11 @@ class SimpleApp:
     def start_scan(self):
         print("▶️ Bắt đầu quét bản đồ...")
         self.scan_status_label.config(text="Đang quét...", bg="red")
+        # --- THÊM DÒNG NÀY ---
+        if hasattr(self, "bt_client") and self.bt_client:
+            self.bt_client.send("start_scan")  # gửi lệnh sang Pi4
+        else:
+            print("[App] ⚠️ Chưa có kết nối Bluetooth!")
 
     def refresh_scan_map(self):
         print("🔄 Làm mới bản đồ...")
@@ -168,9 +173,18 @@ class SimpleApp:
         self.scan_status_label.config(text="Đang chờ...", bg="gray")
 
     def save_scan_map(self):
-        print("💾 Đã lưu bản đồ!")
-        self.scan_status_label.config(text="Hoàn thành", bg="green")
-
+        folder = "data/maps"
+        os.makedirs(folder, exist_ok=True)
+        filename = f"scan_map_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
+        path = os.path.join(folder, filename)
+        # Giả sử bạn lưu ảnh PIL vào self.lidar_image
+        if hasattr(self, 'lidar_image') and self.lidar_image is not None:
+            self.lidar_image.save(path)
+            print(f"💾 Đã lưu bản đồ vào: {path}")
+            self.scan_status_label.config(text=f"Đã lưu: {filename}", bg="green")
+        else:
+            print("[App] ⚠️ Không tìm thấy ảnh bản đồ để lưu!")
+   
     def select_map(self):
         file_path = filedialog.askopenfilename(filetypes=[("PNG files", "*.png")])
         if file_path:
