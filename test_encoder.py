@@ -1,43 +1,42 @@
+# test_encoder_pose.py
 import time
 import math
 from encoder_handler import init_encoders, cleanup_encoders, get_robot_pose
 
-def test_rotation():
-    print("[TEST] Bắt đầu đo quay trái/phải. Nhấn Ctrl+C để dừng.\n")
+def detect_motion(dx, dy, dtheta_deg, threshold=0.01, angle_thresh=3):
+    if abs(dtheta_deg) > angle_thresh:
+        return "⟲ Xoay trái" if dtheta_deg > 0 else "⟳ Xoay phải"
+    elif abs(dx) > threshold or abs(dy) > threshold:
+        return "↑ Tiến" if dx > 0 or dy > 0 else "↓ Lùi"
+    else:
+        return None
 
+if __name__ == "__main__":
     try:
         init_encoders()
-        prev_theta = 0
-        total_rotation_deg = 0
-        start_time = time.time()
+        print("[TEST] Đang đọc dữ liệu encoder... Nhấn Ctrl+C để dừng.\n")
+
+        prev_x, prev_y, prev_theta, _, _ = get_robot_pose()
 
         while True:
-            _, _, theta, left_avg, right_avg = get_robot_pose()
-            deg = math.degrees(theta)
+            x, y, theta, left, right = get_robot_pose()
 
-            # Xoay bao nhiêu từ lần đo trước
-            delta = deg - prev_theta
-            # Xử lý vòng tròn 360 độ
-            if delta > 180:
-                delta -= 360
-            elif delta < -180:
-                delta += 360
+            dx = x - prev_x
+            dy = y - prev_y
+            dtheta = theta - prev_theta
+            dtheta_deg = math.degrees(dtheta)
 
-            total_rotation_deg += delta
-            prev_theta = deg
+            motion = detect_motion(dx, dy, dtheta_deg)
 
-            print(f"[GÓC] Hiện tại: {deg:.2f}° | Tích lũy: {total_rotation_deg:.2f}°")
-            print(f"      ➤ Trái : {left_avg:.1f} counts | {left_avg/171:.2f} vòng")
-            print(f"      ➤ Phải: {right_avg:.1f} counts | {right_avg/171:.2f} vòng\n")
+            if motion:
+                print(f"[ODO] {motion}")
+                print(f"      ➤ Vị trí: x = {x:.2f} m | y = {y:.2f} m | góc = {math.degrees(theta):.1f}°")
+                print(f"      ➤ Trái = {left:.0f} counts | Phải = {right:.0f} counts\n")
+
+            prev_x, prev_y, prev_theta = x, y, theta
             time.sleep(0.2)
 
     except KeyboardInterrupt:
-        duration = time.time() - start_time
-        print("\n[TEST] Kết thúc đo.")
-        print(f"Tổng thời gian: {duration:.1f} giây")
-        print(f"Góc quay tích lũy: {total_rotation_deg:.2f}°")
+        print("\n[TEST] Dừng lại.")
     finally:
         cleanup_encoders()
-
-if __name__ == "__main__":
-    test_rotation()

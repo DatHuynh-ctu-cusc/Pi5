@@ -1,4 +1,3 @@
-# encoder_handler.py
 from gpiozero import DigitalInputDevice  
 import threading
 import math
@@ -7,8 +6,8 @@ import time
 # === CẤU HÌNH ENCODER ===
 ENCODERS = {
     'E1': {'A': 20, 'B': 21},  # Trái trước
-    'E2': {'A': 5,  'B': 6},   # Trái sau (chỉ đọc, không dùng)
-    'E4': {'A': 18, 'B': 12},  # Phải trước (chỉ đọc, không dùng)
+    'E2': {'A': 5,  'B': 6},   # Trái sau (chỉ đọc)
+    'E4': {'A': 18, 'B': 12},  # Phải trước (chỉ đọc)
     'E3': {'A': 24, 'B': 23}   # Phải sau
 }
 
@@ -21,10 +20,10 @@ CPR = 171               # Counts Per Revolution
 WHEEL_RADIUS = 0.03     # mét
 WHEEL_DISTANCE = 0.23   # mét giữa bánh trái và phải
 
-# === HỆ SỐ HIỆU CHỈNH ===
-SCALE_LEFT = 0.3000
-SCALE_RIGHT = 0.2901
-SCALE_THETA = 2.0       # Nhân hệ số góc để chỉnh chính xác hơn
+# === HỆ SỐ HIỆU CHỈNH (cập nhật theo thực tế) ===
+SCALE_LEFT = 0.189      # điều chỉnh từ 0.300
+SCALE_RIGHT = 0.183     # điều chỉnh từ 0.2901
+SCALE_THETA = 3.0       # điều chỉnh từ 2.0
 
 # === VỊ TRÍ ROBOT ===
 robot_x = 0.0
@@ -83,7 +82,7 @@ def get_robot_pose():
     d_center = (d_left + d_right) / 2
     delta_theta = SCALE_THETA * (d_right - d_left) / WHEEL_DISTANCE
 
-    # === Làm mượt robot_theta ===
+    # Làm mượt robot_theta
     raw_theta = robot_theta + delta_theta
     raw_theta = (raw_theta + math.pi) % (2 * math.pi) - math.pi
 
@@ -101,15 +100,28 @@ def get_robot_pose():
 
     return (robot_x, robot_y, robot_theta, left_now, right_now)
 
-# === CHẠY TEST TRỰC TIẾP ===
+# === TEST TRỰC TIẾP ===
 if __name__ == "__main__":
     try:
         init_encoders()
         print("[TEST] Đang đọc dữ liệu encoder... Nhấn Ctrl+C để dừng.")
+        prev_x, prev_y, prev_theta, _, _ = get_robot_pose()
         while True:
-            x, y, theta, left_avg, right_avg = get_robot_pose()
-            print(f"[ODO] x={x:.2f} m | y={y:.2f} m | góc={math.degrees(theta):.1f}°")
-            print(f"      ➤ Trái: {left_avg:.1f} counts | Phải: {right_avg:.1f} counts\n")
+            x, y, theta, left, right = get_robot_pose()
+            dx = x - prev_x
+            dy = y - prev_y
+            dtheta_deg = math.degrees(theta - prev_theta)
+            if abs(dx) > 0.01 or abs(dy) > 0.01 or abs(dtheta_deg) > 2:
+                if abs(dtheta_deg) > 4:
+                    action = "⟲ Xoay trái" if dtheta_deg > 0 else "⟳ Xoay phải"
+                elif dx > 0 or dy > 0:
+                    action = "↑ Tiến"
+                else:
+                    action = "↓ Lùi"
+                print(f"[ODO] {action}")
+                print(f"      ➤ x = {x:.2f} m | y = {y:.2f} m | góc = {math.degrees(theta):.1f}°")
+                print(f"      ➤ Trái = {left:.0f} counts | Phải = {right:.0f} counts\n")
+            prev_x, prev_y, prev_theta = x, y, theta
             time.sleep(0.2)
     except KeyboardInterrupt:
         print("\n[TEST] Dừng lại.")
