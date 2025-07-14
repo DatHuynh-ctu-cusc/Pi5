@@ -1,4 +1,4 @@
-import math
+import math 
 from PIL import Image, ImageTk, ImageDraw
 from encoder_handler import get_robot_pose
 
@@ -24,7 +24,8 @@ def draw_lidar_on_canvas(canvas, data):
         print("[DRAW] ❌ Dữ liệu không hợp lệ.")
         return
 
-    robot_x, robot_y, robot_theta, _, _ = get_robot_pose()
+    # Tương thích với 4 encoder
+    robot_x, robot_y, robot_theta, *_ = get_robot_pose()
 
     # === Vẽ các điểm quét (tích lũy)
     angle = data.get("angle_min", -math.pi)
@@ -65,7 +66,7 @@ def draw_zoomed_lidar_map(canvas, data, radius=2.0):
         print("[DRAW-ZOOM] ❌ Dữ liệu không hợp lệ.")
         return
 
-    robot_x, robot_y, robot_theta, _, _ = get_robot_pose()
+    robot_x, robot_y, robot_theta, *_ = get_robot_pose()
     width = canvas.winfo_width()
     height = canvas.winfo_height()
     image = Image.new("RGB", (width, height), "white")

@@ -212,24 +212,6 @@ class SimpleApp:
         elif status == "stuck":
             self.robot_status_label.config(text="Trạng thái: Mắc kẹt", bg="red")
 
-    def save_scan_map(self):
-        try:
-            print("💾 Đang lưu bản đồ...")
-
-            timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-            ps_file = f"scan_map_{timestamp}.eps"
-            png_file = f"scan_map_{timestamp}.png"
-
-            self.scan_canvas.postscript(file=ps_file)
-            img = Image.open(ps_file)
-            img.save(png_file, 'png')
-
-            self.scan_status_label.config(text="Đã lưu thành công", bg="green")
-            print(f"✅ Lưu bản đồ thành công vào {png_file}")
-        except Exception as e:
-            print("❌ Lỗi khi lưu bản đồ:", e)
-            self.scan_status_label.config(text="Lỗi khi lưu", bg="red")
-
     def show_data(self):
         self.clear_main_content()
         tk.Label(self.main_content, text="DỮ LIỆU TRAO ĐỔI", font=("Arial", 20, "bold"), bg="white", fg="#2c3e50").pack(pady=(15, 10))
