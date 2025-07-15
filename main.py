@@ -1,4 +1,3 @@
-# main.py - Pi5
 import tkinter as tk
 import threading
 from app import SimpleApp
@@ -8,15 +7,23 @@ from data_sender import send_to_pi4
 from lidar_receiver import receive_lidar
 from bluetooth_client import BluetoothClient
 
+PI4_BT_MAC = "D8:3A:DD:E7:AD:76"   # Địa chỉ MAC Bluetooth của Pi4
+
+app = None
+bt_client = None
 
 if __name__ == "__main__":
     try:
         # === Khởi động Encoder ===
         init_encoders()
 
-        # === Giao diện chính ===
+        # === Khởi tạo BluetoothClient và kết nối tới Pi4 ===
+        bt_client = BluetoothClient(server_mac=PI4_BT_MAC)
+        bt_client.connect()   # Nếu connect() tự động trong __init__, có thể bỏ dòng này
+
+        # === Giao diện chính, truyền bt_client vào để gửi lệnh điều khiển ===
         root = tk.Tk()
-        app = SimpleApp(root)
+        app = SimpleApp(root, bt_client=bt_client)
 
         # === Cờ điều khiển luồng chạy ===
         app.running = threading.Event()
@@ -34,7 +41,13 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         print("[App] ⛔ Đóng ứng dụng.")
     finally:
-        # === Giải phóng GPIO ===
-        app.running.clear()
-        cleanup_switches()
-        cleanup_encoders()
+        # === Giải phóng GPIO và Bluetooth ===
+        if app is not None:
+            app.running.clear()
+            cleanup_switches()
+            cleanup_encoders()
+        if bt_client is not None:
+            try:
+                bt_client.close()
+            except:
+                pass

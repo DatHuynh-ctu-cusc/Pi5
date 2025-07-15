@@ -5,12 +5,21 @@ from lidar_map_drawer import draw_lidar_on_canvas, draw_zoomed_lidar_map, reset_
 import datetime
 import os
 from tkinter import messagebox , filedialog
+from bluetooth_client import BluetoothClient
+from datetime import datetime
+import json
 
 
+def clean_lidar_data(data):
+        import math
+        d = dict(data)
+        d["ranges"] = [None if (isinstance(v, float) and (math.isinf(v) or math.isnan(v))) else v for v in data["ranges"]]
+        return d
 
 class SimpleApp:
-    def __init__(self, root):
+    def __init__(self, root, bt_client=None):
         self.root = root
+        self.bt_client = bt_client
         self.root.title("App Robot")
         self.root.geometry("900x600")
 
@@ -130,33 +139,46 @@ class SimpleApp:
         button_frame.pack(fill="x", pady=(15, 10))
 
         tk.Button(button_frame, text="▶️ Bắt đầu", font=("Arial", 11), width=15, command=self.start_scan).pack(side="left", padx=10)
+        # === THÊM NÚT STOP TẠI ĐÂY ===
+        tk.Button(button_frame, text="⏹ STOP", font=("Arial", 11, "bold"), width=12, fg="white", bg="red", command=self.stop_scan).pack(side="left", padx=10)
         tk.Button(button_frame, text="🔄 Làm mới bản đồ", font=("Arial", 11), width=18, command=self.refresh_scan_map).pack(side="left", padx=10)
         tk.Button(button_frame, text="💾 Lưu bản đồ", font=("Arial", 11), width=15, command=self.save_scan_map).pack(side="left", padx=10)
 
         self.scan_status_label = tk.Label(button_frame, text="Đang chờ...", width=20,
-                                          font=("Arial", 11, "bold"), bg="gray", fg="white")
+                                        font=("Arial", 11, "bold"), bg="gray", fg="white")
         self.scan_status_label.pack(side="left", padx=20)
+
+    def stop_scan(self):
+        print("⏹ Dừng quét bản đồ...")
+        self.scan_status_label.config(text="Đã dừng", bg="gray")
+        # Gửi lệnh STOP qua Bluetooth nếu đã kết nối
+        if hasattr(self, "bt_client") and self.bt_client:
+            self.bt_client.send("stop")  # Gửi lệnh dừng sang Pi4
+        else:
+            print("[App] ⚠️ Chưa có kết nối Bluetooth!")
 
     def update_lidar_map(self, lidar_data):
         if not isinstance(lidar_data, dict) or "ranges" not in lidar_data or not lidar_data["ranges"]:
             print("[App] ❌ Dữ liệu LiDAR không hợp lệ hoặc rỗng.")
             return
-
         try:
             print(f"[App] ✅ Cập nhật bản đồ với {len(lidar_data['ranges'])} điểm")
+            # ----> Gán lại dữ liệu lidar cho lần lưu tiếp theo
+            self.last_lidar_data = lidar_data.copy()
 
-            # Vẽ bản đồ lớn nếu canvas quét tồn tại
+            # Nếu draw_lidar_on_canvas trả về ảnh PIL:
             if hasattr(self, "scan_canvas") and self.scan_canvas.winfo_exists():
-                draw_lidar_on_canvas(self.scan_canvas, lidar_data)
+                img = draw_lidar_on_canvas(self.scan_canvas, lidar_data)
+                if img is not None:
+                    self.lidar_image = img    # <-- Gán ảnh PIL để lưu sau này
 
-            # Vẽ bản đồ phụ nếu tồn tại sub_map (chỉ các điểm trong 2m)
+            # Vẽ bản đồ phụ nếu có
             if hasattr(self, "sub_map") and self.sub_map.winfo_exists():
-                from lidar_map_drawer import draw_zoomed_lidar_map  # đảm bảo hàm này tồn tại
+                from lidar_map_drawer import draw_zoomed_lidar_map
                 draw_zoomed_lidar_map(self.sub_map, lidar_data, radius=2.0)
-
         except Exception as e:
             print("[App] ⚠️ Lỗi khi vẽ bản đồ LiDAR:", e)
-            
+
 
     def start_scan(self):
         print("▶️ Bắt đầu quét bản đồ...")
@@ -172,30 +194,106 @@ class SimpleApp:
         reset_lidar_map(self.scan_canvas)  # ✅ reset ảnh tích lũy
         self.scan_status_label.config(text="Đang chờ...", bg="gray")
 
+    def clean_lidar_data(self, data):
+        import math
+        clean = dict(data)
+        clean_ranges = []
+        for v in data.get("ranges", []):
+            if isinstance(v, float) and (math.isinf(v) or math.isnan(v)):
+                clean_ranges.append(None)
+            else:
+                clean_ranges.append(v)
+        clean["ranges"] = clean_ranges
+        return clean
+
     def save_scan_map(self):
+        import os, json
+        from datetime import datetime
+
         folder = "data/maps"
         os.makedirs(folder, exist_ok=True)
-        filename = f"scan_map_{datetime.now().strftime('%Y%m%d_%H%M%S')}.png"
-        path = os.path.join(folder, filename)
-        # Giả sử bạn lưu ảnh PIL vào self.lidar_image
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+
+        # --- Lưu ảnh PNG ---
+        img_filename = f"scan_map_{timestamp}.png"
+        img_path = os.path.join(folder, img_filename)
+        saved_img = False
         if hasattr(self, 'lidar_image') and self.lidar_image is not None:
-            self.lidar_image.save(path)
-            print(f"💾 Đã lưu bản đồ vào: {path}")
-            self.scan_status_label.config(text=f"Đã lưu: {filename}", bg="green")
+            try:
+                self.lidar_image.save(img_path)
+                print(f"💾 Đã lưu ảnh bản đồ vào: {img_path}")
+                self.scan_status_label.config(text=f"Đã lưu: {img_filename}", bg="green")
+                saved_img = True
+            except Exception as e:
+                print(f"[App] ⚠️ Lỗi khi lưu ảnh bản đồ: {e}")
         else:
             print("[App] ⚠️ Không tìm thấy ảnh bản đồ để lưu!")
-   
-    def select_map(self):
-        file_path = filedialog.askopenfilename(filetypes=[("PNG files", "*.png")])
-        if file_path:
+
+        # --- Lưu dữ liệu LiDAR JSON ---
+        data_filename = f"scan_map_{timestamp}.json"
+        data_path = os.path.join(folder, data_filename)
+        saved_data = False
+        if hasattr(self, "last_lidar_data") and self.last_lidar_data:
+            # Chuyển các giá trị Infinity/NaN thành None
+            import math
+            def clean_lidar_data(data):
+                clean = dict(data)
+                clean_ranges = []
+                for v in data.get("ranges", []):
+                    if isinstance(v, float) and (math.isinf(v) or math.isnan(v)):
+                        clean_ranges.append(None)
+                    else:
+                        clean_ranges.append(v)
+                clean["ranges"] = clean_ranges
+                return clean
+
+            save_data = clean_lidar_data(self.last_lidar_data)
             try:
-                image = Image.open(file_path)
-                image = image.resize((680, 300), Image.Resampling.LANCZOS)
-                self.map_image = ImageTk.PhotoImage(image)
-                self.main_map.create_image(0, 0, anchor="nw", image=self.map_image)
-                print(f"🖼 Đã chọn bản đồ: {file_path}")
+                with open(data_path, "w") as f:
+                    json.dump(save_data, f, indent=2)
+                print(f"💾 Đã lưu dữ liệu bản đồ vào: {data_path}")
+                saved_data = True
             except Exception as e:
-                print("❌ Lỗi khi mở bản đồ:", e)
+                print(f"[App] ⚠️ Lỗi khi lưu dữ liệu bản đồ: {e}")
+        else:
+            print("[App] ⚠️ Không có dữ liệu LiDAR để lưu!")
+
+        # --- Thông báo nếu cả hai đều OK ---
+        if saved_img and saved_data:
+            print("[App] ✅ Đã lưu đầy đủ ảnh và dữ liệu bản đồ!")
+        elif not saved_img and not saved_data:
+            self.scan_status_label.config(text=f"Lỗi khi lưu bản đồ!", bg="red")
+
+        def select_map(self):
+            file_path = filedialog.askopenfilename(filetypes=[("PNG files", "*.png")])
+            if file_path:
+                try:
+                    image = Image.open(file_path)
+                    image = image.resize((680, 300), Image.Resampling.LANCZOS)
+                    self.map_image = ImageTk.PhotoImage(image)
+                    self.main_map.create_image(0, 0, anchor="nw", image=self.map_image)
+                    print(f"🖼 Đã chọn bản đồ: {file_path}")
+                except Exception as e:
+                    print("❌ Lỗi khi mở bản đồ:", e)
+
+    def load_lidar_map_from_file(self, json_path):
+        with open(json_path, "r") as f:
+            data = json.load(f)
+        # Chuyển None (trong ranges) thành math.inf để tái sử dụng vẽ lại
+        ranges = []
+        for v in data["ranges"]:
+            if v is None:
+                ranges.append(float("inf"))
+            else:
+                ranges.append(v)
+        data["ranges"] = ranges
+
+        # Vẽ lại lên canvas
+        if hasattr(self, "scan_canvas") and self.scan_canvas.winfo_exists():
+            draw_lidar_on_canvas(self.scan_canvas, data)
+            print(f"[App] 🖼️ Đã tải lại bản đồ từ: {json_path}")
+        # Nếu muốn lưu lại vào self.last_lidar_data cũng được:
+        self.last_lidar_data = data
 
     def clear_map(self):
         print("🗑 Đã xoá bản đồ!")
@@ -229,17 +327,19 @@ class SimpleApp:
         self.send_text.pack(pady=5, fill="x")
 
     def show_folder(self):
+        maps_folder = "data/maps"
         self.clear_main_content()
         tk.Label(self.main_content, text="🗂 DANH SÁCH BẢN ĐỒ ĐÃ LƯU", font=("Arial", 18, "bold"), bg="white", fg="#2c3e50").pack(pady=10)
-
         image_frame = tk.Frame(self.main_content, bg="white")
         image_frame.pack(pady=5, padx=10, fill="both", expand=True)
 
-        # Nút xoá tất cả bản đồ
         tk.Button(self.main_content, text="🗑 Xoá tất cả bản đồ đã lưu", font=("Arial", 11), bg="#e74c3c", fg="white",
                 command=self.delete_all_maps).pack(pady=(5, 15))
 
-        png_files = sorted([f for f in os.listdir(".") if f.startswith("scan_map_") and f.endswith(".png")], reverse=True)
+        png_files = sorted(
+            [f for f in os.listdir(maps_folder) if f.startswith("scan_map_") and f.endswith(".png")],
+            reverse=True
+        )
 
         if not png_files:
             tk.Label(image_frame, text="⚠️ Không có bản đồ nào được lưu.", font=("Arial", 12), bg="white", fg="red").pack()
@@ -247,7 +347,8 @@ class SimpleApp:
 
         for i, filename in enumerate(png_files[:3]):
             try:
-                img = Image.open(filename)
+                img_path = os.path.join(maps_folder, filename)
+                img = Image.open(img_path)
                 img = img.resize((250, 200), Image.Resampling.LANCZOS)
                 photo = ImageTk.PhotoImage(img)
 
@@ -259,12 +360,14 @@ class SimpleApp:
                 label.grid(row=1, column=i)
 
                 # Bind click để mở ảnh
-                panel.bind("<Button-1>", lambda e, path=filename: self.open_full_image(path))
+                panel.bind("<Button-1>", lambda e, path=img_path: self.open_full_image(path))
 
             except Exception as e:
                 print(f"[Folder] ❌ Lỗi khi tải ảnh {filename}:", e)
 
     def open_full_image(self, path):
+        from PIL import Image, ImageTk
+        import tkinter as tk
         try:
             top = tk.Toplevel(self.root)
             top.title(f"🖼 Xem bản đồ: {path}")
@@ -277,23 +380,24 @@ class SimpleApp:
             lbl.image = photo
             lbl.pack(padx=10, pady=10)
         except Exception as e:
-            messagebox.showerror("Lỗi", f"Không thể mở ảnh: {e}")
+            tk.messagebox.showerror("Lỗi", f"Không thể mở ảnh: {e}")
 
     def delete_all_maps(self):
+        import os
+        from tkinter import messagebox
+        maps_folder = "data/maps"
         confirm = messagebox.askyesno("Xác nhận xoá", "Bạn có chắc chắn muốn xoá tất cả bản đồ?")
         if confirm:
             deleted = 0
-            for f in os.listdir("."):
+            for f in os.listdir(maps_folder):
                 if f.startswith("scan_map_") and f.endswith(".png"):
                     try:
-                        os.remove(f)
+                        os.remove(os.path.join(maps_folder, f))
                         deleted += 1
                     except Exception as e:
                         print(f"Lỗi khi xoá {f}: {e}")
             messagebox.showinfo("Đã xoá", f"Đã xoá {deleted} bản đồ.")
             self.show_folder()
-
-
 
     def show_robot(self):
         self.clear_main_content()
