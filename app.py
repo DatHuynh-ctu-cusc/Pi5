@@ -10,6 +10,7 @@ from datetime import datetime
 import json
 
 
+
 def clean_lidar_data(data):
         import math
         d = dict(data)
@@ -158,6 +159,7 @@ class SimpleApp:
             print("[App] ⚠️ Chưa có kết nối Bluetooth!")
 
     def update_lidar_map(self, lidar_data):
+        global global_map_image
         if not isinstance(lidar_data, dict) or "ranges" not in lidar_data or not lidar_data["ranges"]:
             print("[App] ❌ Dữ liệu LiDAR không hợp lệ hoặc rỗng.")
             return
@@ -169,6 +171,7 @@ class SimpleApp:
             # Nếu draw_lidar_on_canvas trả về ảnh PIL:
             if hasattr(self, "scan_canvas") and self.scan_canvas.winfo_exists():
                 img = draw_lidar_on_canvas(self.scan_canvas, lidar_data)
+                print("[DEBUG] img trả về từ draw_lidar_on_canvas:", type(img))
                 if img is not None:
                     self.lidar_image = img    # <-- Gán ảnh PIL để lưu sau này
 
@@ -178,7 +181,7 @@ class SimpleApp:
                 draw_zoomed_lidar_map(self.sub_map, lidar_data, radius=2.0)
         except Exception as e:
             print("[App] ⚠️ Lỗi khi vẽ bản đồ LiDAR:", e)
-
+            return global_map_image
 
     def start_scan(self):
         print("▶️ Bắt đầu quét bản đồ...")
@@ -207,8 +210,10 @@ class SimpleApp:
         return clean
 
     def save_scan_map(self):
-        import os, json
+        import os
+        import json
         from datetime import datetime
+        from tkinter import messagebox
 
         folder = "data/maps"
         os.makedirs(folder, exist_ok=True)
@@ -226,17 +231,19 @@ class SimpleApp:
                 saved_img = True
             except Exception as e:
                 print(f"[App] ⚠️ Lỗi khi lưu ảnh bản đồ: {e}")
+                messagebox.showerror("Lỗi lưu ảnh", str(e))
         else:
             print("[App] ⚠️ Không tìm thấy ảnh bản đồ để lưu!")
+            messagebox.showwarning("Thiếu ảnh", "Chưa có bản đồ hình ảnh để lưu.")
 
         # --- Lưu dữ liệu LiDAR JSON ---
         data_filename = f"scan_map_{timestamp}.json"
         data_path = os.path.join(folder, data_filename)
         saved_data = False
         if hasattr(self, "last_lidar_data") and self.last_lidar_data:
-            # Chuyển các giá trị Infinity/NaN thành None
-            import math
+            # Chuyển các giá trị không hợp lệ thành None
             def clean_lidar_data(data):
+                import math
                 clean = dict(data)
                 clean_ranges = []
                 for v in data.get("ranges", []):
@@ -255,16 +262,20 @@ class SimpleApp:
                 saved_data = True
             except Exception as e:
                 print(f"[App] ⚠️ Lỗi khi lưu dữ liệu bản đồ: {e}")
+                messagebox.showerror("Lỗi lưu dữ liệu", str(e))
         else:
             print("[App] ⚠️ Không có dữ liệu LiDAR để lưu!")
+            messagebox.showwarning("Thiếu dữ liệu", "Chưa có dữ liệu LiDAR để lưu.")
 
         # --- Thông báo nếu cả hai đều OK ---
         if saved_img and saved_data:
             print("[App] ✅ Đã lưu đầy đủ ảnh và dữ liệu bản đồ!")
+            messagebox.showinfo("Thành công", "Đã lưu đầy đủ ảnh và dữ liệu bản đồ!")
         elif not saved_img and not saved_data:
             self.scan_status_label.config(text=f"Lỗi khi lưu bản đồ!", bg="red")
 
-        def select_map(self):
+
+    def select_map(self):
             file_path = filedialog.askopenfilename(filetypes=[("PNG files", "*.png")])
             if file_path:
                 try:
@@ -294,6 +305,19 @@ class SimpleApp:
             print(f"[App] 🖼️ Đã tải lại bản đồ từ: {json_path}")
         # Nếu muốn lưu lại vào self.last_lidar_data cũng được:
         self.last_lidar_data = data
+        #========== CHỌN VÀ HIỂN THỊ FILE BẢN ĐỒ PNG ==========#
+    def select_map(self):
+        file_path = filedialog.askopenfilename(filetypes=[("PNG files", "*.png")])
+        if file_path:
+            try:
+                image = Image.open(file_path)
+                image = image.resize((680, 300), Image.Resampling.LANCZOS)
+                self.map_image = ImageTk.PhotoImage(image)
+                self.main_map.create_image(0, 0, anchor="nw", image=self.map_image)
+                print(f"🖼 Đã chọn bản đồ: {file_path}")
+            except Exception as e:
+                print("❌ Lỗi khi mở bản đồ:", e)
+    
 
     def clear_map(self):
         print("🗑 Đã xoá bản đồ!")
@@ -328,6 +352,7 @@ class SimpleApp:
 
     def show_folder(self):
         maps_folder = "data/maps"
+        if not os.path.exists(maps_folder):os.makedirs(maps_folder)
         self.clear_main_content()
         tk.Label(self.main_content, text="🗂 DANH SÁCH BẢN ĐỒ ĐÃ LƯU", font=("Arial", 18, "bold"), bg="white", fg="#2c3e50").pack(pady=10)
         image_frame = tk.Frame(self.main_content, bg="white")

@@ -22,7 +22,7 @@ def show_scan_map(app):
 def start_scan(app):
     print("▶️ Bắt đầu quét bản đồ...")
     app.scan_status_label.config(text="Đang quét...", bg="red")
-    if hasattr(app, "bt_client") and app.bt_client:
+    if hasattr(app, "bt_client") and app.bt_client and getattr(app.bt_client, "sock", None):
         app.bt_client.send("start_scan")
     else:
         print("[App] ⚠️ Chưa có kết nối Bluetooth!")
