@@ -210,11 +210,6 @@ class SimpleApp:
         return clean
 
     def save_scan_map(self):
-        import os
-        import json
-        from datetime import datetime
-        from tkinter import messagebox
-
         folder = "data/maps"
         os.makedirs(folder, exist_ok=True)
         timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -276,16 +271,75 @@ class SimpleApp:
 
 
     def select_map(self):
-            file_path = filedialog.askopenfilename(filetypes=[("PNG files", "*.png")])
-            if file_path:
+        # Chọn file PNG hoặc JSON
+        file_path = filedialog.askopenfilename(
+            filetypes=[
+                ("Bản đồ (*.json, *.png)", "*.json *.png"),
+                ("Dữ liệu quét LiDAR (*.json)", "*.json"),
+                ("Ảnh bản đồ (*.png)", "*.png"),
+                ("Tất cả các tệp", "*.*"),
+            ]
+        )
+        if not file_path:
+            return
+
+        ext = os.path.splitext(file_path)[1].lower()
+
+        # Luôn xóa sạch canvas trước khi vẽ ảnh mới!
+        if hasattr(self, "main_map"):
+            self.main_map.delete("all")
+
+        if ext == ".png":
+            json_path = file_path.replace('.png', '.json')
+            if os.path.exists(json_path):
                 try:
-                    image = Image.open(file_path)
-                    image = image.resize((680, 300), Image.Resampling.LANCZOS)
-                    self.map_image = ImageTk.PhotoImage(image)
-                    self.main_map.create_image(0, 0, anchor="nw", image=self.map_image)
-                    print(f"🖼 Đã chọn bản đồ: {file_path}")
+                    with open(json_path, "r") as f:
+                        lidar_data = json.load(f)
+                    for i, v in enumerate(lidar_data.get("ranges", [])):
+                        if v is None:
+                            lidar_data["ranges"][i] = float("inf")
+                    from lidar_map_drawer import draw_lidar_on_canvas
+                    if hasattr(self, "main_map"):
+                        img = draw_lidar_on_canvas(self.main_map, lidar_data)
+                        if img is not None:
+                            self.lidar_image = img
+                            print(f"✅ Đã vẽ lại bản đồ từ: {json_path}")
                 except Exception as e:
-                    print("❌ Lỗi khi mở bản đồ:", e)
+                    print(f"❌ Lỗi khi đọc/vẽ lại dữ liệu JSON: {e}")
+                    self.show_png_on_map(file_path)
+            else:
+                print("⚠️ Không tìm thấy file JSON, chỉ hiển thị ảnh PNG.")
+                self.show_png_on_map(file_path)
+        elif ext == ".json":
+            try:
+                with open(file_path, "r") as f:
+                    lidar_data = json.load(f)
+                for i, v in enumerate(lidar_data.get("ranges", [])):
+                    if v is None:
+                        lidar_data["ranges"][i] = float("inf")
+                from lidar_map_drawer import draw_lidar_on_canvas
+                if hasattr(self, "main_map"):
+                    img = draw_lidar_on_canvas(self.main_map, lidar_data)
+                    if img is not None:
+                        self.lidar_image = img
+                        print(f"✅ Đã vẽ lại bản đồ từ: {file_path}")
+            except Exception as e:
+                print(f"❌ Lỗi khi đọc/vẽ lại dữ liệu JSON: {e}")
+        else:
+            print("⚠️ Chỉ hỗ trợ chọn file PNG hoặc JSON!")
+
+    def show_png_on_map(self, file_path):
+        try:
+            image = Image.open(file_path)
+            image = image.resize((680, 300), Image.Resampling.LANCZOS)
+            self.map_image = ImageTk.PhotoImage(image)
+            # XÓA CANVAS trước khi vẽ mới (cực kỳ quan trọng!)
+            self.main_map.delete("all")
+            # LUÔN tạo lại image mới!
+            self.main_map.create_image(0, 0, anchor="nw", image=self.map_image)
+            print(f"🖼 Đã chọn bản đồ: {file_path}")
+        except Exception as e:
+            print("❌ Lỗi khi mở bản đồ PNG:", e)
 
     def load_lidar_map_from_file(self, json_path):
         with open(json_path, "r") as f:
@@ -304,23 +358,25 @@ class SimpleApp:
             draw_lidar_on_canvas(self.scan_canvas, data)
             print(f"[App] 🖼️ Đã tải lại bản đồ từ: {json_path}")
         # Nếu muốn lưu lại vào self.last_lidar_data cũng được:
-        self.last_lidar_data = data
-        #========== CHỌN VÀ HIỂN THỊ FILE BẢN ĐỒ PNG ==========#
-    def select_map(self):
-        file_path = filedialog.askopenfilename(filetypes=[("PNG files", "*.png")])
-        if file_path:
-            try:
-                image = Image.open(file_path)
-                image = image.resize((680, 300), Image.Resampling.LANCZOS)
-                self.map_image = ImageTk.PhotoImage(image)
-                self.main_map.create_image(0, 0, anchor="nw", image=self.map_image)
-                print(f"🖼 Đã chọn bản đồ: {file_path}")
-            except Exception as e:
-                print("❌ Lỗi khi mở bản đồ:", e)
+        self.last_lidar_data = data        
     
 
     def clear_map(self):
-        print("🗑 Đã xoá bản đồ!")
+        print("🗑 Đã xoá bản đồ chính!")
+        # Xoá toàn bộ đối tượng trên canvas bản đồ chính
+        if hasattr(self, "main_map"):
+            self.main_map.delete("all")
+        # Xoá biến lưu ảnh bản đồ chính trong app
+        self.map_image = None
+        self.lidar_image = None
+        self.last_lidar_data = None
+        # Reset lại bản đồ tích lũy (nếu bạn dùng ảnh toàn cục vẽ tích lũy)
+        from lidar_map_drawer import reset_lidar_map
+        reset_lidar_map(self.main_map)
+        # Thông báo popup cho user
+        from tkinter import messagebox
+        messagebox.showinfo("Xoá bản đồ", "Bản đồ chính đã được xoá khỏi giao diện.")
+
 
     def draw_path(self):
         print("✏️ Vẽ đường đi")
