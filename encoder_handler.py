@@ -18,22 +18,17 @@ lock = threading.Lock()
 # === THÔNG SỐ ROBOT ===
 CPR = 171               # Counts Per Revolution
 WHEEL_RADIUS = 0.03     # mét
-WHEEL_DISTANCE = 0.23   # mét giữa bánh trái và phải
+WHEEL_DISTANCE = 0.23   # khoảng cách giữa bánh trái và phải
 
-# === HỆ SỐ HIỆU CHỈNH ===
-SCALE_LEFT = 0.1895
-SCALE_RIGHT = 0.1832
-SCALE_THETA = 3.5   # Cập nhật để xoay đúng 90°
+# === HỆ SỐ HIỆU CHỈNH QUÃNG ĐƯỜNG BÁNH ===
+SCALE_LEFT = 0.1960
+SCALE_RIGHT = 0.1785
 
 # === VỊ TRÍ ROBOT ===
 robot_x = 0.0
 robot_y = 0.0
 robot_theta = 0.0
 last_positions = positions.copy()
-
-# === LÀM MƯỢT GÓC ===
-theta_history = []
-MAX_HISTORY = 9
 
 # === CALLBACK ĐỌC ENCODER ===
 def make_callback(key):
@@ -63,51 +58,40 @@ def cleanup_encoders():
         enc['A'].close()
         enc['B'].close()
 
-# === TÍNH POSE ROBOT ===
+# === TÍNH TOÁN POSE ROBOT ===
 def get_robot_pose():
-    global robot_x, robot_y, robot_theta, last_positions, theta_history
+    global robot_x, robot_y, robot_theta, last_positions
 
     with lock:
-        left_now = (positions['E1'] + positions['E2']) / 2
-        right_now = (positions['E3'] + positions['E4']) / 2
-        left_last = (last_positions['E1'] + last_positions['E2']) / 2
-        right_last = (last_positions['E3'] + last_positions['E4']) / 2
+        delta_E1 = positions['E1'] - last_positions['E1']
+        delta_E2 = positions['E2'] - last_positions['E2']
+        delta_E3 = positions['E3'] - last_positions['E3']
+        delta_E4 = positions['E4'] - last_positions['E4']
 
-        d_left = SCALE_LEFT * (left_now - left_last) * (2 * math.pi * WHEEL_RADIUS) / CPR
-        d_right = SCALE_RIGHT * (right_now - right_last) * (2 * math.pi * WHEEL_RADIUS) / CPR
+        last_positions = positions.copy()
 
-        last_positions['E1'] = positions['E1']
-        last_positions['E2'] = positions['E2']
-        last_positions['E3'] = positions['E3']
-        last_positions['E4'] = positions['E4']
+    # Tính trung bình delta
+    delta_left = (delta_E1 + delta_E2) / 2
+    delta_right = (delta_E3 + delta_E4) / 2
 
-    # === TÍNH GÓC XOAY ===
-    delta_theta = SCALE_THETA * (d_right - d_left) / WHEEL_DISTANCE
-    raw_theta = robot_theta + delta_theta
-    raw_theta = (raw_theta + math.pi) % (2 * math.pi) - math.pi
+    # Quãng đường mỗi bên
+    d_left = SCALE_LEFT * delta_left * (2 * math.pi * WHEEL_RADIUS) / CPR
+    d_right = SCALE_RIGHT * delta_right * (2 * math.pi * WHEEL_RADIUS) / CPR
 
-    # Làm mượt
-    theta_history.append(raw_theta)
-    if len(theta_history) > MAX_HISTORY:
-        theta_history.pop(0)
-    robot_theta = sum(theta_history) / len(theta_history)
+    # Góc thay đổi
+    delta_theta = (d_right - d_left) / WHEEL_DISTANCE
+    robot_theta += delta_theta
+    robot_theta = (robot_theta + math.pi) % (2 * math.pi) - math.pi  # Giữ trong [-π, π]
 
-    # === TÍNH X, Y ===
-    if (d_left > 0 and d_right < 0) or (d_left < 0 and d_right > 0):
-        d_center = 0  # xoay tại chỗ
-    else:
-        d_center = (d_left + d_right) / 2
-
-    dx = d_center * math.cos(robot_theta)
-    dy = d_center * math.sin(robot_theta)
-
-    robot_x += dx
-    robot_y += dy
+    # Dịch chuyển trung tâm
+    d_center = (d_left + d_right) / 2
+    robot_x += d_center * math.cos(robot_theta)
+    robot_y += d_center * math.sin(robot_theta)
 
     return (robot_x, robot_y, robot_theta,
             positions['E1'], positions['E2'], positions['E3'], positions['E4'])
 
-# === TEST TRỰC TIẾP ===
+# === TEST THỰC TẾ ===
 if __name__ == "__main__":
     try:
         init_encoders()
@@ -128,8 +112,8 @@ if __name__ == "__main__":
                     action = "↓ Lùi"
 
                 print(f"[ODO] {action}")
-                print(f"      ➤ x = {x:.2f} m | y = {y:.2f} m | góc = {math.degrees(theta):.1f}° (Δθ = {dtheta_deg:.1f}°)")
-                print(f"      ➤ E1={e1:.0f} | E2={e2:.0f} | E3={e3:.0f} | E4={e4:.0f}\n")
+                print(f"      ➤ Vị trí: x = {x:.2f} m | y = {y:.2f} m | góc = {math.degrees(theta):.1f}° (Δθ = {dtheta_deg:.1f}°)")
+                print(f"      ➤ Trái = {e1 + e2:.0f} counts | Phải = {e3 + e4:.0f} counts\n")
 
             prev_x, prev_y, prev_theta = x, y, theta
             time.sleep(0.2)

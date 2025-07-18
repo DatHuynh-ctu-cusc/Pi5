@@ -1,4 +1,4 @@
-import math 
+import math
 from PIL import Image, ImageTk, ImageDraw
 from encoder_handler import get_robot_pose
 
@@ -24,7 +24,10 @@ def draw_lidar_on_canvas(canvas, data):
         print("[DRAW] ❌ Dữ liệu không hợp lệ.")
         return
 
+    # === Đọc vị trí robot ===
     robot_x, robot_y, robot_theta, *_ = get_robot_pose()
+
+    # === Cập nhật điểm vật cản vào bản đồ tích lũy ===
     angle = data.get("angle_min", -math.pi)
     angle_increment = data.get("angle_increment", 0.01)
     for r in data["ranges"]:
@@ -39,15 +42,19 @@ def draw_lidar_on_canvas(canvas, data):
                     drawn_points.add((px, py))
         angle += angle_increment
 
+    # === Vẽ robot lên bản đồ tạm thời (KHÔNG vẽ vào bản đồ tích lũy) ===
+    display_image = global_map_image.copy()
+    draw = ImageDraw.Draw(display_image)
     robot_px, robot_py = world_to_pixel(robot_x, robot_y)
-    draw = global_draw
     draw.ellipse((robot_px - 6, robot_py - 6, robot_px + 6, robot_py + 6), fill="red")
+
     arrow_len = 20
     arrow_x = robot_px + arrow_len * math.cos(robot_theta)
     arrow_y = robot_py - arrow_len * math.sin(robot_theta)
     draw.line((robot_px, robot_py, arrow_x, arrow_y), fill="green", width=2)
 
-    resized_image = global_map_image.resize((canvas.winfo_width(), canvas.winfo_height()))
+    # === Hiển thị lên canvas ===
+    resized_image = display_image.resize((canvas.winfo_width(), canvas.winfo_height()))
     tk_img = ImageTk.PhotoImage(resized_image)
 
     if hasattr(canvas, "map_image"):
@@ -56,9 +63,7 @@ def draw_lidar_on_canvas(canvas, data):
         canvas.map_image = canvas.create_image(0, 0, anchor="nw", image=tk_img)
     canvas.image = tk_img
 
-    # === Trả về bản đồ gốc sau khi đã vẽ xong ===
-    return global_map_image.copy()
-
+    return display_image
 
 def draw_zoomed_lidar_map(canvas, data, radius=2.0):
     if not canvas or "ranges" not in data:
