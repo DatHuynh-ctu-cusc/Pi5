@@ -3,6 +3,7 @@ import tkinter as tk
 from PIL import Image, ImageTk
 from lidar_map_drawer import draw_lidar_on_canvas, draw_zoomed_lidar_map, reset_lidar_map  # ✅ Import đúng hàm vẽ bản đồ
 import datetime
+import math
 import os
 from tkinter import messagebox , filedialog
 from bluetooth_client import BluetoothClient
@@ -175,43 +176,31 @@ class SimpleApp:
         if not isinstance(lidar_data, dict) or "ranges" not in lidar_data or not lidar_data["ranges"]:
             print("[App] ❌ Dữ liệu LiDAR không hợp lệ hoặc rỗng.")
             return
+
         try:
             print(f"[App] ✅ Cập nhật bản đồ với {len(lidar_data['ranges'])} điểm")
-            
-            # ✅ Gán lại dữ liệu lidar cho định vị tự động
+
+            # ✅ Lưu dữ liệu LiDAR mới nhất để dùng khi cần
             self.last_lidar_scan = lidar_data.copy()
 
-            # Nếu draw_lidar_on_canvas trả về ảnh PIL:
+            # ✅ Vẽ bản đồ chính (canvas LiDAR chính)
             if hasattr(self, "scan_canvas") and self.scan_canvas.winfo_exists():
+                from lidar_map_drawer import draw_lidar_on_canvas
                 img = draw_lidar_on_canvas(self.scan_canvas, lidar_data)
-                print("[DEBUG] img trả về từ draw_lidar_on_canvas:", type(img))
                 if img is not None:
-                    self.lidar_image = img
+                    self.lidar_image = img  # Lưu ảnh để có thể hiển thị lại nếu cần
 
-            # Vẽ bản đồ phụ nếu có
+            # ✅ Vẽ bản đồ phụ (zoom gần robot) nếu có
             if hasattr(self, "sub_map") and self.sub_map.winfo_exists():
                 from lidar_map_drawer import draw_zoomed_lidar_map
                 draw_zoomed_lidar_map(self.sub_map, lidar_data, radius=2.0)
 
-            # === TỰ ĐỘNG ĐỊNH VỊ ROBOT TỪ SCAN VÀ OGM ===
-            if hasattr(self, "ogm_set") and self.ogm_set and not hasattr(self, "robot_start"):
-                from scan_matcher import find_best_pose
-                best_pose = find_best_pose(lidar_data, self.ogm_set)
-                if best_pose:
-                    self.robot_start = (best_pose[0], best_pose[1])
-                    self.start_theta = best_pose[2]
-                    print(f"📍 Đã định vị robot tại x = {best_pose[0]:.2f} m, y = {best_pose[1]:.2f} m, θ = {math.degrees(best_pose[2]):.1f}°")
-                else:
-                    print("⚠️ Không thể định vị robot từ vòng quét LiDAR.")
+            # ❌ Bỏ định vị tự động bằng scan LiDAR
+            # Không còn gọi find_best_pose hay cập nhật robot_start từ dữ liệu quét
 
         except Exception as e:
-            print("[App] ⚠️ Lỗi khi vẽ bản đồ LiDAR:", e)
-            return global_map_image
+            print(f"[App] ❌ Lỗi khi cập nhật bản đồ: {e}")
 
-
-        except Exception as e:
-            print("[App] ⚠️ Lỗi khi vẽ bản đồ LiDAR:", e)
-            return global_map_image
 
 
     def refresh_scan_map(self):
@@ -401,7 +390,7 @@ class SimpleApp:
 
         if "occupied_points" not in data:
             print("⚠️ Không có dữ liệu occupied_points!")
-            return
+            return  
 
         self.ogm_set = set(tuple(p) for p in data["occupied_points"])
         reset_lidar_map(self.main_map)
@@ -478,112 +467,62 @@ class SimpleApp:
         from tkinter import messagebox
         messagebox.showinfo("Xoá bản đồ", "Bản đồ chính đã được xoá khỏi giao diện.")
 
-
     def draw_path(self):
-        print("✏️ Vẽ đường đi")
+        from encoder_handler import get_robot_pose
+        from lidar_map_drawer import world_to_pixel, MAP_SIZE_PIXELS
+        import math
 
-        if not hasattr(self, "robot_goal"):
-            print("⚠️ Cần chọn vị trí đích đến.")
+        canvas = self.main_map
+        if not canvas or not hasattr(self, "ogm_set"):
+            print("⚠️ Chưa có bản đồ OGM để vẽ đường.")
             return
 
-        # ✅ Lấy vị trí hiện tại của robot từ encoder
+        # 1. Xóa overlay cũ nếu có
+        if hasattr(self, "path_items"):
+            for item in self.path_items:
+                canvas.delete(item)
+        self.path_items = []
+
+        # 2. Lấy vị trí robot hiện tại (tính theo encoder)
         try:
-            from encoder_handler import get_robot_pose
             x, y, theta = get_robot_pose()[:3]
-            self.robot_start = (x, y)
-            self.start_theta = theta
         except Exception as e:
             print("❌ Không thể lấy vị trí robot từ encoder:", e)
             return
 
-        from lidar_map_drawer import world_to_pixel, MAP_SIZE_PIXELS, MAP_SCALE
+        # 3. Chuyển sang pixel ảnh → pixel canvas
+        px, py = world_to_pixel(x, y)
+        canvas_w = canvas.winfo_width()
+        canvas_h = canvas.winfo_height()
+        cx = px * canvas_w / MAP_SIZE_PIXELS
+        cy = py * canvas_h / MAP_SIZE_PIXELS
 
-        # Chuyển sang pixel
-        start_px, start_py = world_to_pixel(*self.robot_start)
-        goal_px, goal_py = world_to_pixel(*self.robot_goal)
+        # 4. Vẽ điểm đầu (màu đỏ) và lưu lại
+        r = 4
+        dot = canvas.create_oval(cx - r, cy - r, cx + r, cy + r, fill="red", outline="")
+        self.path_items = [dot]
+        self._last_path_xy = (cx, cy)
 
-        print(f"🚩 Start(px): ({start_px}, {start_py})")
-        print(f"🎯 Goal(px): ({goal_px}, {goal_py})")
+        print(f"🚩 Vị trí robot bắt đầu: ({x:.2f}, {y:.2f}) → canvas ({cx:.1f}, {cy:.1f})")
+        print("✏️ Click từng điểm trên bản đồ để nối đường đi...")
 
-        # A* tìm đường đi
-        import heapq
+        # 5. Gắn sự kiện click vào canvas
+        def on_canvas_click(event):
+            x1, y1 = self._last_path_xy
+            x2, y2 = event.x, event.y
 
-        def neighbors(x, y):
-            dirs = [(-1, 0), (1, 0), (0, -1), (0, 1),
-                    (-1, -1), (-1, 1), (1, -1), (1, 1)]
-            for dx, dy in dirs:
-                yield x + dx, y + dy
+            # Vẽ đoạn thẳng
+            line = canvas.create_line(x1, y1, x2, y2, fill="blue", width=2)
+            # Vẽ điểm tròn
+            dot = canvas.create_oval(x2 - 3, y2 - 3, x2 + 3, y2 + 3, fill="green", outline="")
 
-        def heuristic(a, b):
-            return ((a[0] - b[0])**2 + (a[1] - b[1])**2) ** 0.5
+            self.path_items += [line, dot]
+            self._last_path_xy = (x2, y2)
 
-        # ✅ Tối ưu tránh ngõ hẹp
-        def clearance(px, py):
-            # Đếm số ô trống quanh (px, py)
-            free = 0
-            for dx in range(-2, 3):
-                for dy in range(-2, 3):
-                    nx, ny = px + dx, py + dy
-                    if 0 <= nx < MAP_SIZE_PIXELS and 0 <= ny < MAP_SIZE_PIXELS:
-                        if (nx, ny) not in self.ogm_set:
-                            free += 1
-            return free
+            print(f"➕ Đã thêm điểm ({x2}, {y2}) trên canvas")
 
-        frontier = []
-        heapq.heappush(frontier, (0, (start_px, start_py)))
-        came_from = {}
-        cost_so_far = {}
-        came_from[(start_px, start_py)] = None
-        cost_so_far[(start_px, start_py)] = 0
-
-        while frontier:
-            _, current = heapq.heappop(frontier)
-
-            if current == (goal_px, goal_py):
-                break
-
-            for next in neighbors(*current):
-                x, y = next
-                if not (0 <= x < MAP_SIZE_PIXELS and 0 <= y < MAP_SIZE_PIXELS):
-                    continue
-                if next in self.ogm_set:
-                    continue
-
-                new_cost = cost_so_far[current] + 1 + (10 - clearance(x, y))  # Tránh đường hẹp
-                if next not in cost_so_far or new_cost < cost_so_far[next]:
-                    cost_so_far[next] = new_cost
-                    priority = new_cost + heuristic((goal_px, goal_py), next)
-                    heapq.heappush(frontier, (priority, next))
-                    came_from[next] = current
-
-        # Truy vết đường đi
-        path = []
-        current = (goal_px, goal_py)
-        while current != (start_px, start_py):
-            path.append(current)
-            current = came_from.get(current)
-            if current is None:
-                print("❌ Không tìm được đường đi.")
-                return
-        path.append((start_px, start_py))
-        path.reverse()
-
-        # Xoá đường cũ
-        if hasattr(self, "path_lines"):
-            for line in self.path_lines:
-                self.main_map.delete(line)
-        self.path_lines = []
-
-        # Vẽ đường mới
-        for i in range(len(path) - 1):
-            x1, y1 = path[i]
-            x2, y2 = path[i + 1]
-            line = self.main_map.create_line(x1, y1, x2, y2, fill="blue", width=2)
-            self.path_lines.append(line)
-
-        print(f"✅ Đã vẽ đường đi gồm {len(path)} bước.")
-
-
+        # 6. Kết nối sự kiện click chuột
+        canvas.bind("<Button-1>", on_canvas_click)
 
     def clear_path(self):
         if not hasattr(self, "main_map"):
