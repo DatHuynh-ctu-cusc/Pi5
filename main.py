@@ -37,6 +37,7 @@ if __name__ == "__main__":
 
         # === Chạy giao diện chính ===
         root.mainloop()
+        
 
     except KeyboardInterrupt:
         print("[App] ⛔ Đóng ứng dụng.")

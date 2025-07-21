@@ -12,10 +12,12 @@ global_map_image = Image.new("RGB", (MAP_SIZE_PIXELS, MAP_SIZE_PIXELS), "white")
 global_draw = ImageDraw.Draw(global_map_image)
 drawn_points = set()
 
+
 def world_to_pixel(x, y):
     px = int(x * MAP_SCALE + MAP_SIZE_PIXELS // 2)
     py = int(MAP_SIZE_PIXELS // 2 - y * MAP_SCALE)
     return px, py
+
 
 def draw_lidar_on_canvas(canvas, data):
     global global_map_image, global_draw, drawn_points
@@ -63,7 +65,8 @@ def draw_lidar_on_canvas(canvas, data):
         canvas.map_image = canvas.create_image(0, 0, anchor="nw", image=tk_img)
     canvas.image = tk_img
 
-    return display_image
+    return global_map_image
+
 
 def draw_zoomed_lidar_map(canvas, data, radius=2.0):
     if not canvas or "ranges" not in data:
@@ -78,7 +81,7 @@ def draw_zoomed_lidar_map(canvas, data, radius=2.0):
 
     center_x = width // 2
     center_y = height // 2
-    scale = 100  # pixels per meter
+    scale = MAP_SCALE  # pixel per meter
 
     angle = data.get("angle_min", -math.pi)
     angle_increment = data.get("angle_increment", 0.01)
@@ -104,7 +107,8 @@ def draw_zoomed_lidar_map(canvas, data, radius=2.0):
         canvas.zoom_image = canvas.create_image(0, 0, anchor="nw", image=tk_img)
     canvas.image = tk_img
 
-def reset_lidar_map(canvas):
+
+def reset_lidar_map(canvas=None):
     global global_map_image, global_draw, drawn_points
     global_map_image = Image.new("RGB", (MAP_SIZE_PIXELS, MAP_SIZE_PIXELS), "white")
     global_draw = ImageDraw.Draw(global_map_image)
@@ -112,3 +116,36 @@ def reset_lidar_map(canvas):
     if canvas:
         canvas.delete("all")
     print("[RESET] 🔄 Đã reset bản đồ.")
+
+
+def draw_robot_realtime(canvas, base_image):
+    """
+    Vẽ robot realtime lên bản đồ tĩnh đã tải (base_image).
+    Gọi liên tục để cập nhật vị trí.
+    """
+    from PIL import ImageDraw
+    try:
+        robot_x, robot_y, robot_theta, *_ = get_robot_pose()
+        # Tính pixel robot
+        robot_px = int(robot_x * MAP_SCALE + MAP_SIZE_PIXELS // 2)
+        robot_py = int(MAP_SIZE_PIXELS // 2 - robot_y * MAP_SCALE)
+
+        # Bản sao để không ghi đè base_image gốc
+        image = base_image.copy()
+        draw = ImageDraw.Draw(image)
+        draw.ellipse((robot_px - 6, robot_py - 6, robot_px + 6, robot_py + 6), fill="red")
+        arrow_len = 20
+        arrow_x = robot_px + arrow_len * math.cos(robot_theta)
+        arrow_y = robot_py - arrow_len * math.sin(robot_theta)
+        draw.line((robot_px, robot_py, arrow_x, arrow_y), fill="green", width=2)
+
+        # Hiển thị lại lên canvas
+        resized_image = image.resize((canvas.winfo_width(), canvas.winfo_height()))
+        tk_img = ImageTk.PhotoImage(resized_image)
+        if hasattr(canvas, "map_image"):
+            canvas.itemconfig(canvas.map_image, image=tk_img)
+        else:
+            canvas.map_image = canvas.create_image(0, 0, anchor="nw", image=tk_img)
+        canvas.image = tk_img
+    except Exception as e:
+        print(f"[draw_robot_realtime] ❌ Lỗi: {e}")

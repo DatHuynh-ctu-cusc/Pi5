@@ -38,11 +38,15 @@ def receive_lidar(running_flag, update_callback, get_text_widget=None):
                             try:
                                 parsed = json.loads(line)
 
-                                # Gọi cập nhật bản đồ
+                                # ✅ Lưu vòng quét mới nhất vào thuộc tính app
+                                if hasattr(update_callback.__self__, "last_lidar_scan"):
+                                    update_callback.__self__.last_lidar_scan = parsed
+
+                                # ✅ Gọi cập nhật bản đồ
                                 if callable(update_callback):
                                     update_callback(parsed)
 
-                                # Ghi log vào GUI nếu có
+                                # ✅ Ghi log vào giao diện nếu có
                                 if get_text_widget:
                                     text_widget = get_text_widget()
                                     if text_widget and text_widget.winfo_exists():

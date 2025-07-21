@@ -21,14 +21,26 @@ WHEEL_RADIUS = 0.03     # mét
 WHEEL_DISTANCE = 0.23   # khoảng cách giữa bánh trái và phải
 
 # === HỆ SỐ HIỆU CHỈNH QUÃNG ĐƯỜNG BÁNH ===
-SCALE_LEFT = 0.1960
-SCALE_RIGHT = 0.1785
+SCALE_LEFT = 0.1965
+SCALE_RIGHT = 0.1795
 
 # === VỊ TRÍ ROBOT ===
 robot_x = 0.0
 robot_y = 0.0
 robot_theta = 0.0
 last_positions = positions.copy()
+
+# === OFFSET ĐỊNH VỊ THỦ CÔNG (DÙNG CHO SCAN MATCHING) ===
+offset_x = 0.0
+offset_y = 0.0
+offset_theta = 0.0
+
+def set_offset(x, y, theta):
+    global offset_x, offset_y, offset_theta
+    offset_x = x
+    offset_y = y
+    offset_theta = theta
+    print(f"[OFFSET] ✅ Gán vị trí robot = ({x:.2f}, {y:.2f}) góc {math.degrees(theta):.1f}°")
 
 # === CALLBACK ĐỌC ENCODER ===
 def make_callback(key):
@@ -88,8 +100,13 @@ def get_robot_pose():
     robot_x += d_center * math.cos(robot_theta)
     robot_y += d_center * math.sin(robot_theta)
 
-    return (robot_x, robot_y, robot_theta,
-            positions['E1'], positions['E2'], positions['E3'], positions['E4'])
+    # Trả về vị trí sau khi cộng offset
+    return (
+        robot_x + offset_x,
+        robot_y + offset_y,
+        robot_theta + offset_theta,
+        positions['E1'], positions['E2'], positions['E3'], positions['E4']
+    )
 
 # === TEST THỰC TẾ ===
 if __name__ == "__main__":
