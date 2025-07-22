@@ -18,11 +18,11 @@ lock = threading.Lock()
 # === THÔNG SỐ ROBOT ===
 CPR = 171               # Counts Per Revolution
 WHEEL_RADIUS = 0.03     # mét
-WHEEL_DISTANCE = 0.23   # khoảng cách giữa bánh trái và phải
-
-# === HỆ SỐ HIỆU CHỈNH QUÃNG ĐƯỜNG BÁNH ===
-SCALE_LEFT = 0.1965
-SCALE_RIGHT = 0.1795
+WHEEL_DISTANCE = 0.34   # <-- chỉnh lại cho đúng thực tế, tăng dần lên nếu ODO báo góc lớn hơn thực tế
+SCALE_LEFT = 0.169
+SCALE_RIGHT = 0.156
+SCALE_ROT_LEFT = 0.201   # scale xoay riêng nếu cần
+SCALE_ROT_RIGHT = 0.213
 
 # === VỊ TRÍ ROBOT ===
 robot_x = 0.0
@@ -79,28 +79,27 @@ def get_robot_pose():
         delta_E2 = positions['E2'] - last_positions['E2']
         delta_E3 = positions['E3'] - last_positions['E3']
         delta_E4 = positions['E4'] - last_positions['E4']
-
         last_positions = positions.copy()
 
-    # Tính trung bình delta
     delta_left = (delta_E1 + delta_E2) / 2
     delta_right = (delta_E3 + delta_E4) / 2
+    is_rotating = abs(delta_left + delta_right) < 0.5 * max(abs(delta_left), abs(delta_right))
 
-    # Quãng đường mỗi bên
-    d_left = SCALE_LEFT * delta_left * (2 * math.pi * WHEEL_RADIUS) / CPR
-    d_right = SCALE_RIGHT * delta_right * (2 * math.pi * WHEEL_RADIUS) / CPR
+    if is_rotating:
+        d_left = SCALE_ROT_LEFT * delta_left * (2 * math.pi * WHEEL_RADIUS) / CPR
+        d_right = SCALE_ROT_RIGHT * delta_right * (2 * math.pi * WHEEL_RADIUS) / CPR
+    else:
+        d_left = SCALE_LEFT * delta_left * (2 * math.pi * WHEEL_RADIUS) / CPR
+        d_right = SCALE_RIGHT * delta_right * (2 * math.pi * WHEEL_RADIUS) / CPR
 
-    # Góc thay đổi
     delta_theta = (d_right - d_left) / WHEEL_DISTANCE
     robot_theta += delta_theta
-    robot_theta = (robot_theta + math.pi) % (2 * math.pi) - math.pi  # Giữ trong [-π, π]
+    robot_theta = (robot_theta + math.pi) % (2 * math.pi) - math.pi
 
-    # Dịch chuyển trung tâm
     d_center = (d_left + d_right) / 2
     robot_x += d_center * math.cos(robot_theta)
     robot_y += d_center * math.sin(robot_theta)
 
-    # Trả về vị trí sau khi cộng offset
     return (
         robot_x + offset_x,
         robot_y + offset_y,
