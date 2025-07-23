@@ -1,12 +1,14 @@
 import tkinter as tk
 from tkinter import messagebox
 from lidar_map_drawer import draw_lidar_on_canvas, reset_lidar_map, global_map_image, drawn_points, MAP_SIZE_PIXELS, MAP_SCALE
-from scan_matcher import find_best_pose
 from datetime import datetime
 import os, json
 
+# Import các hàm xử lý từ lidar_processing
+from lidar_processing import parser, scan_filter
+
 class ScanTab(tk.Frame):
-    def __init__(self, master, app,):
+    def __init__(self, master, app):
         super().__init__(master, bg="white")
         self.app = app
 
@@ -29,6 +31,21 @@ class ScanTab(tk.Frame):
         self.scan_status_label.pack(side="left", padx=20)
 
     # ==== Các hàm xử lý ====
+    def on_lidar_scan(self, line):
+        data = parser.parse_lidar_line(line)
+        if not data:
+            print("[ScanTab] ⚠️ Dữ liệu LiDAR không hợp lệ (parse lỗi).")
+            return
+
+        # Lọc nhiễu
+        data["ranges"] = scan_filter.median_filter(data["ranges"])
+        points = scan_filter.scan_to_points(data)
+        points = scan_filter.density_filter(points)
+
+        self.last_lidar_scan = data
+        self.last_lidar_points = points
+        self.update_lidar_map(data)
+
 
     def start_scan(self):
         print("▶️ Bắt đầu quét bản đồ...")
@@ -101,12 +118,12 @@ class ScanTab(tk.Frame):
             print("[App] ❌ Dữ liệu LiDAR không hợp lệ hoặc rỗng.")
             return
         try:
-            print(f"[App] ✅ Cập nhật bản đồ với {len(lidar_data['ranges'])} điểm")
+            #print(f"[App] ✅ Cập nhật bản đồ với {len(lidar_data['ranges'])} điểm")
             self.last_lidar_scan = lidar_data.copy()
 
             if self.scan_canvas.winfo_exists():
                 img = draw_lidar_on_canvas(self.scan_canvas, lidar_data)
-                print("[DEBUG] img trả về từ draw_lidar_on_canvas:", type(img))
+                #print("[DEBUG] img trả về từ draw_lidar_on_canvas:", type(img))
                 if img is not None:
                     self.lidar_image = img
 

@@ -4,7 +4,7 @@ from gui.app import SimpleApp
 from encoder_handler import init_encoders, cleanup_encoders
 from limit_switch_handler import cleanup_switches
 from data_sender import send_to_pi4
-from lidar_receiver import receive_lidar
+from lidar_receiver import start_lidar_receiver
 from bluetooth_client import BluetoothClient
 
 PI4_BT_MAC = "D8:3A:DD:E7:AD:76"
@@ -24,7 +24,8 @@ if __name__ == "__main__":
 
         # Đảm bảo app.tabs['scan'] tồn tại:
         update_callback = app.tabs['scan'].update_lidar_map
-        threading.Thread(target=receive_lidar, args=(app.running, update_callback), daemon=True).start()
+        update_callback_map = app.tabs['map'].on_lidar_data
+        threading.Thread(target=start_lidar_receiver, args=(app.running, [update_callback]), daemon=True).start()
 
         root.mainloop()
     except KeyboardInterrupt:
