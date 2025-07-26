@@ -6,6 +6,7 @@ from gui.data_tab import DataTab
 from gui.folder_tab import FolderTab
 from gui.robot_tab import RobotTab
 from gui.settings_tab import SettingsTab
+from lidar_map_drawer import set_drawing_enabled
 
 class SimpleApp:
     def __init__(self, root, bt_client=None):
@@ -61,11 +62,18 @@ class SimpleApp:
         self.tabs["scan"] = ScanTab(self.main_content, self)
 
     def show_tab(self, tab_name):
-        # Ẩn toàn bộ tab, chỉ pack tab cần show
         for t in self.tabs.values():
             t.pack_forget()
         self.tabs[tab_name].pack(fill="both", expand=True)
-    
+
+        # ✅ Tự động bật/tắt chế độ vẽ
+        if tab_name == "scan":
+            set_drawing_enabled(True)
+            print("[App] ✅ Bật vẽ LiDAR (ScanTab)")
+        elif tab_name == "map":
+            set_drawing_enabled(False)
+            print("[App] 🚫 Tắt vẽ LiDAR (MapTab)")
+        
 if __name__ == "__main__":
     root = tk.Tk()
     app = SimpleApp(root)

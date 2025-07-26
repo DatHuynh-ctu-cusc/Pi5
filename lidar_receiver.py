@@ -1,10 +1,17 @@
+# lidar_receiver.py
 import socket
 import json
 import time
 
+registered_callbacks = []
+
+def register_lidar_callback(cb):
+    if callable(cb) and cb not in registered_callbacks:
+        registered_callbacks.append(cb)
+
 def safe_insert_json(widget, data):
     try:
-        if widget.winfo_exists():
+        if widget and widget.winfo_exists():
             widget.insert("end", json.dumps(data) + "\n")
             widget.see("end")
     except Exception as e:
@@ -12,17 +19,20 @@ def safe_insert_json(widget, data):
 
 def start_lidar_receiver(running_flag, callbacks=None, get_text_widget=None, port=8899):
     """
-    Chỉ nhận dữ liệu LiDAR thô từ Pi4, gửi cho các callback trong callbacks (list).
-    Không xử lý nội dung, không lưu vào biến thành viên của bất kỳ class nào.
+    Gọi 1 lần duy nhất trong app. Tự động gửi dữ liệu đến các callback đã đăng ký.
     """
     if callbacks is None:
         callbacks = []
     if not isinstance(callbacks, list):
-        callbacks = [callbacks]    
+        callbacks = [callbacks]
+    callbacks += registered_callbacks  # gộp thêm các callback đã đăng ký ngoài
+
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(('0.0.0.0', port))
     server.listen(1)
+    server.settimeout(1.0)
+
     print(f"[App] 📡 Đang chờ dữ liệu LiDAR từ Pi4 tại cổng {port}...")
 
     last_data_time = 0
@@ -56,20 +66,21 @@ def start_lidar_receiver(running_flag, callbacks=None, get_text_widget=None, por
                                     print("🟢 Đang nhận dữ liệu LiDAR...")
                                     receiving = True
 
-                                # Gửi cho toàn bộ callback
+                                # Gửi tới toàn bộ callback
                                 for cb in callbacks:
                                     if callable(cb):
                                         try:
-                                            #print(f"[App] Gọi callback: {cb}")
                                             cb(parsed)
                                         except Exception as e:
                                             print(f"[App] ⚠️ Callback lỗi: {e}")
 
-                                # Nếu muốn log text ra 1 widget nào đó:
                                 if get_text_widget:
-                                    text_widget = get_text_widget()
-                                    if text_widget and text_widget.winfo_exists():
-                                        text_widget.after(0, lambda: safe_insert_json(text_widget, parsed))
+                                    try:
+                                        text_widget = get_text_widget()
+                                        if text_widget and text_widget.winfo_exists():
+                                            text_widget.after(0, lambda: safe_insert_json(text_widget, parsed))
+                                    except Exception as e:
+                                        print(f"[App] ⚠️ Text widget lỗi: {e}")
                             except json.JSONDecodeError:
                                 print("[App] ❌ Không phải JSON:", line)
                     except Exception as e:
@@ -78,6 +89,8 @@ def start_lidar_receiver(running_flag, callbacks=None, get_text_widget=None, por
                     if time.time() - last_data_time > NOTIFY_INTERVAL and receiving:
                         print("🔴 Không nhận được dữ liệu LiDAR!")
                         receiving = False
+        except socket.timeout:
+            continue
         except Exception as e:
             print("[App] ⚠️ Lỗi kết nối Pi4:", e)
     server.close()

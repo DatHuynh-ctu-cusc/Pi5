@@ -19,10 +19,10 @@ lock = threading.Lock()
 CPR = 171               # Counts Per Revolution
 WHEEL_RADIUS = 0.03     # mét
 WHEEL_DISTANCE = 0.34   # <-- chỉnh lại cho đúng thực tế, tăng dần lên nếu ODO báo góc lớn hơn thực tế
-SCALE_LEFT = 0.169
-SCALE_RIGHT = 0.156
+SCALE_LEFT = 0.1311
+SCALE_RIGHT = 0.1258
 SCALE_ROT_LEFT = 0.201   # scale xoay riêng nếu cần
-SCALE_ROT_RIGHT = 0.213
+SCALE_ROT_RIGHT = 0.195
 
 # === VỊ TRÍ ROBOT ===
 robot_x = 0.0

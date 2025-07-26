@@ -15,8 +15,15 @@ drawn_points = set()
 # === GRID ĐẾM SỐ LẦN PHÁT HIỆN (Density Filter) ===
 occupancy_grid = [[0 for _ in range(MAP_SIZE_PIXELS)] for _ in range(MAP_SIZE_PIXELS)]
 
-DENSITY_THRESHOLD = 4   # Số lần quét trùng điểm mới coi là vật cản
-NEIGHBOR_FILTER = True  # Có bật lọc hàng xóm sau khi tích lũy
+DENSITY_THRESHOLD = 4
+NEIGHBOR_FILTER = True
+
+# === BẬT/TẮT vẽ realtime vào bản đồ (để tránh ghi đè JSON) ===
+drawing_enabled = True
+
+def set_drawing_enabled(flag: bool):
+    global drawing_enabled
+    drawing_enabled = flag
 
 def world_to_pixel(x, y):
     px = int(x * MAP_SCALE + MAP_SIZE_PIXELS // 2)
@@ -24,22 +31,20 @@ def world_to_pixel(x, y):
     return px, py
 
 def draw_lidar_on_canvas(canvas, data, moving_state="forward"):
-    """
-    - moving_state: "forward", "backward", "left", "right" đều tích lũy map
-    """
-    global global_map_image, global_draw, drawn_points, occupancy_grid
+    global global_map_image, global_draw, drawn_points, occupancy_grid, drawing_enabled
 
     if not canvas or "ranges" not in data:
         print("[DRAW] ❌ Dữ liệu không hợp lệ.")
         return
 
-    # Đọc vị trí robot
-    robot_x, robot_y, robot_theta, *_ = get_robot_pose()
+    if not drawing_enabled:
+        # 🚫 Không vẽ nếu đang ở MapTab đã mở JSON
+        return
 
+    robot_x, robot_y, robot_theta, *_ = get_robot_pose()
     angle = data.get("angle_min", -math.pi)
     angle_increment = data.get("angle_increment", 0.01)
 
-    # === Tích lũy điểm vào occupancy_grid luôn, không cần check trạng thái ===
     for r in data["ranges"]:
         if 0.05 < r < 6.0:
             scan_angle = robot_theta + angle
@@ -53,7 +58,6 @@ def draw_lidar_on_canvas(canvas, data, moving_state="forward"):
                     drawn_points.add((px, py))
         angle += angle_increment
 
-    # === Vẽ robot lên bản đồ tạm thời (không ghi vào tích lũy) ===
     display_image = global_map_image.copy()
     draw = ImageDraw.Draw(display_image)
     robot_px, robot_py = world_to_pixel(robot_x, robot_y)
@@ -77,27 +81,24 @@ def draw_lidar_on_canvas(canvas, data, moving_state="forward"):
     return global_map_image
 
 def postprocess_map():
-    """Lọc lại các điểm lẻ sau khi scan tích lũy xong."""
     global global_map_image, occupancy_grid, drawn_points
     print("[Filter] Bắt đầu lọc median/neighbor")
-    min_neighbors = 4  # số hàng xóm occupied để giữ lại điểm
+    min_neighbors = 4
 
     new_image = global_map_image.copy()
     new_draw = ImageDraw.Draw(new_image)
     count = 0
-    for y in range(1, MAP_SIZE_PIXELS-1):
-        for x in range(1, MAP_SIZE_PIXELS-1):
+    for y in range(1, MAP_SIZE_PIXELS - 1):
+        for x in range(1, MAP_SIZE_PIXELS - 1):
             if occupancy_grid[y][x] >= DENSITY_THRESHOLD:
-                # Đếm số neighbor occupied 3x3 kernel
                 neighbors = sum([
                     occupancy_grid[yy][xx] >= DENSITY_THRESHOLD
-                    for yy in range(y-1, y+2)
-                    for xx in range(x-1, x+2)
+                    for yy in range(y - 1, y + 2)
+                    for xx in range(x - 1, x + 2)
                     if not (yy == y and xx == x)
                 ])
                 if neighbors < min_neighbors:
-                    # Là điểm lẻ, xoá khỏi ảnh (tô trắng lên)
-                    new_draw.ellipse((x-1, y-1, x+1, y+1), fill="white")
+                    new_draw.ellipse((x - 1, y - 1, x + 1, y + 1), fill="white")
                     count += 1
     global_map_image.paste(new_image)
     print(f"[Filter] Đã loại {count} điểm nhiễu lẻ.")
@@ -125,7 +126,7 @@ def draw_zoomed_lidar_map(canvas, data, radius=2.0):
 
     center_x = width // 2
     center_y = height // 2
-    scale = MAP_SCALE  # pixel per meter
+    scale = MAP_SCALE
 
     angle = data.get("angle_min", -math.pi)
     angle_increment = data.get("angle_increment", 0.01)
@@ -152,7 +153,6 @@ def draw_zoomed_lidar_map(canvas, data, radius=2.0):
     canvas.image = tk_img
 
 def draw_robot_realtime(canvas, base_image):
-    from PIL import ImageDraw
     try:
         robot_x, robot_y, robot_theta, *_ = get_robot_pose()
         robot_px = int(robot_x * MAP_SCALE + MAP_SIZE_PIXELS // 2)
@@ -173,4 +173,3 @@ def draw_robot_realtime(canvas, base_image):
         canvas.image = tk_img
     except Exception as e:
         print(f"[draw_robot_realtime] ❌ Lỗi: {e}")
-

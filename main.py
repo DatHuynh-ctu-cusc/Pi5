@@ -20,12 +20,15 @@ if __name__ == "__main__":
         app.running = threading.Event()
         app.running.set()
 
+        # Gửi encoder & công tắc tới Pi4
         threading.Thread(target=send_to_pi4, args=(app.running,), daemon=True).start()
 
-        # Đảm bảo app.tabs['scan'] tồn tại:
-        update_callback = app.tabs['scan'].update_lidar_map
-        update_callback_map = app.tabs['map'].on_lidar_data
-        threading.Thread(target=start_lidar_receiver, args=(app.running, [update_callback]), daemon=True).start()
+        # Chỉ gọi 1 lần duy nhất để nhận LiDAR
+        threading.Thread(
+            target=start_lidar_receiver,
+            args=(app.running,),  # callbacks sẽ được đăng ký riêng ở các Tab
+            daemon=True
+        ).start()
 
         root.mainloop()
     except KeyboardInterrupt:
