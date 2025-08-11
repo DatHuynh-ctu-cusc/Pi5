@@ -1,9 +1,7 @@
 from gpiozero import DigitalInputDevice  
-import threading
-import math
-import time
+import threading, math, time
 
-# === CẤU HÌNH ENCODER ===
+# === ENCODER CONFIG ===
 ENCODERS = {
     'E1': {'A': 20, 'B': 21},  # Trái trước
     'E2': {'A': 5,  'B': 6},   # Trái sau
@@ -11,94 +9,95 @@ ENCODERS = {
     'E4': {'A': 18, 'B': 12},  # Phải trước
 }
 
-positions = {key: 0 for key in ENCODERS}
+positions = {k: 0 for k in ENCODERS}
 encoders = {}
 lock = threading.Lock()
 
-# === THÔNG SỐ ROBOT ===
-CPR = 171               # Counts Per Revolution
-WHEEL_RADIUS = 0.03     # mét
-WHEEL_DISTANCE = 0.34   # <-- chỉnh lại cho đúng thực tế, tăng dần lên nếu ODO báo góc lớn hơn thực tế
-SCALE_LEFT = 0.1311
-SCALE_RIGHT = 0.1258
-SCALE_ROT_LEFT = 0.201   # scale xoay riêng nếu cần
-SCALE_ROT_RIGHT = 0.195
+# === ROBOT PHYSICAL PARAMETERS ===
+CPR = 171
+WHEEL_RADIUS = 0.03     # meters
+WHEEL_DISTANCE = 0.35   # meters between L/R
+SCALE_LEFT = 0.133
+SCALE_RIGHT = 0.133
+SCALE_ROT_LEFT = 0.22
+SCALE_ROT_RIGHT = 0.19
 
-# === VỊ TRÍ ROBOT ===
-robot_x = 0.0
-robot_y = 0.0
-robot_theta = 0.0
+# === ROBOT POSE ===
+robot_x = robot_y = robot_theta = 0.0
 last_positions = positions.copy()
 
-# === OFFSET ĐỊNH VỊ THỦ CÔNG (DÙNG CHO SCAN MATCHING) ===
-offset_x = 0.0
-offset_y = 0.0
-offset_theta = 0.0
-
+# === OFFSET (FOR LOCALIZATION) ===
+offset_x = offset_y = offset_theta = 0.0
 def set_offset(x, y, theta):
     global offset_x, offset_y, offset_theta
-    offset_x = x
-    offset_y = y
-    offset_theta = theta
+    offset_x, offset_y, offset_theta = x, y, theta
     print(f"[OFFSET] ✅ Gán vị trí robot = ({x:.2f}, {y:.2f}) góc {math.degrees(theta):.1f}°")
 
-# === CALLBACK ĐỌC ENCODER ===
-def make_callback(key):
-    def callback():
-        A = encoders[key]['A'].value
-        B = encoders[key]['B'].value
+# === CALLBACKS ===
+def make_callback(k):
+    def cb():
+        A, B = encoders[k]['A'].value, encoders[k]['B'].value
         with lock:
-            if A == B:
-                positions[key] += 1
-            else:
-                positions[key] -= 1
-    return callback
+            positions[k] += 1 if A == B else -1
+    return cb
 
-# === KHỞI TẠO ENCODER ===
 def init_encoders():
-    for key, pins in ENCODERS.items():
-        encoders[key] = {
+    for k, pins in ENCODERS.items():
+        encoders[k] = {
             'A': DigitalInputDevice(pins['A']),
             'B': DigitalInputDevice(pins['B']),
         }
-        encoders[key]['A'].when_activated = make_callback(key)
-        encoders[key]['A'].when_deactivated = make_callback(key)
+        encoders[k]['A'].when_activated = make_callback(k)
+        encoders[k]['A'].when_deactivated = make_callback(k)
 
-# === DỌN DẸP ===
 def cleanup_encoders():
-    for enc in encoders.values():
-        enc['A'].close()
-        enc['B'].close()
+    for e in encoders.values():
+        e['A'].close()
+        e['B'].close()
 
-# === TÍNH TOÁN POSE ROBOT ===
+# === VELOCITY TRACKING ===
+vx = vy = vtheta = 0.0
+last_x = last_y = last_theta = 0.0
+last_time = time.time()
+
+def update_velocity(x, y, theta):
+    global vx, vy, vtheta, last_x, last_y, last_theta, last_time
+    now = time.time()
+    dt = now - last_time
+    if dt == 0: return
+    vx = (x - last_x) / dt
+    vy = (y - last_y) / dt
+    vtheta = (theta - last_theta) / dt
+    last_x, last_y, last_theta, last_time = x, y, theta, now
+
+# === POSE CALCULATION ===
 def get_robot_pose():
     global robot_x, robot_y, robot_theta, last_positions
-
     with lock:
-        delta_E1 = positions['E1'] - last_positions['E1']
-        delta_E2 = positions['E2'] - last_positions['E2']
-        delta_E3 = positions['E3'] - last_positions['E3']
-        delta_E4 = positions['E4'] - last_positions['E4']
+        dE1 = positions['E1'] - last_positions['E1']
+        dE2 = positions['E2'] - last_positions['E2']
+        dE3 = positions['E3'] - last_positions['E3']
+        dE4 = positions['E4'] - last_positions['E4']
         last_positions = positions.copy()
 
-    delta_left = (delta_E1 + delta_E2) / 2
-    delta_right = (delta_E3 + delta_E4) / 2
-    is_rotating = abs(delta_left + delta_right) < 0.5 * max(abs(delta_left), abs(delta_right))
+    d_left = (dE1 + dE2) / 2
+    d_right = (dE3 + dE4) / 2
+    rotating = abs(d_left + d_right) < 0.5 * max(abs(d_left), abs(d_right))
 
-    if is_rotating:
-        d_left = SCALE_ROT_LEFT * delta_left * (2 * math.pi * WHEEL_RADIUS) / CPR
-        d_right = SCALE_ROT_RIGHT * delta_right * (2 * math.pi * WHEEL_RADIUS) / CPR
+    if rotating:
+        l = SCALE_ROT_LEFT * d_left * (2 * math.pi * WHEEL_RADIUS) / CPR
+        r = SCALE_ROT_RIGHT * d_right * (2 * math.pi * WHEEL_RADIUS) / CPR
     else:
-        d_left = SCALE_LEFT * delta_left * (2 * math.pi * WHEEL_RADIUS) / CPR
-        d_right = SCALE_RIGHT * delta_right * (2 * math.pi * WHEEL_RADIUS) / CPR
+        l = SCALE_LEFT * d_left * (2 * math.pi * WHEEL_RADIUS) / CPR
+        r = SCALE_RIGHT * d_right * (2 * math.pi * WHEEL_RADIUS) / CPR
 
-    delta_theta = (d_right - d_left) / WHEEL_DISTANCE
-    robot_theta += delta_theta
-    robot_theta = (robot_theta + math.pi) % (2 * math.pi) - math.pi
-
-    d_center = (d_left + d_right) / 2
+    dtheta = (r - l) / WHEEL_DISTANCE
+    robot_theta = (robot_theta + dtheta + math.pi) % (2 * math.pi) - math.pi
+    d_center = (l + r) / 2
     robot_x += d_center * math.cos(robot_theta)
     robot_y += d_center * math.sin(robot_theta)
+
+    update_velocity(robot_x, robot_y, robot_theta)
 
     return (
         robot_x + offset_x,
@@ -107,29 +106,29 @@ def get_robot_pose():
         positions['E1'], positions['E2'], positions['E3'], positions['E4']
     )
 
-# === TEST THỰC TẾ ===
+def get_robot_velocity():
+    with lock:
+        return vx, vy, vtheta
+
+# === TEST ===
 if __name__ == "__main__":
     try:
         init_encoders()
-        print("[TEST] Đang đọc dữ liệu encoder... Nhấn Ctrl+C để dừng.")
+        print("[TEST] 🧪 Đang đọc encoder... Ctrl+C để dừng.")
         prev_x, prev_y, prev_theta, *_ = get_robot_pose()
+
         while True:
             x, y, theta, e1, e2, e3, e4 = get_robot_pose()
-            dx = x - prev_x
-            dy = y - prev_y
+            dx, dy = x - prev_x, y - prev_y
             dtheta_deg = math.degrees(theta - prev_theta)
 
             if abs(dx) > 0.01 or abs(dy) > 0.01 or abs(dtheta_deg) > 2:
-                if abs(dtheta_deg) > 4:
-                    action = "⟲ Xoay trái" if dtheta_deg > 0 else "⟳ Xoay phải"
-                elif dx > 0 or dy > 0:
-                    action = "↑ Tiến"
-                else:
-                    action = "↓ Lùi"
-
+                action = "⟲ Xoay trái" if dtheta_deg > 4 else (
+                         "⟳ Xoay phải" if dtheta_deg < -4 else (
+                         "↑ Tiến" if dx > 0 or dy > 0 else "↓ Lùi"))
                 print(f"[ODO] {action}")
-                print(f"      ➤ Vị trí: x = {x:.2f} m | y = {y:.2f} m | góc = {math.degrees(theta):.1f}° (Δθ = {dtheta_deg:.1f}°)")
-                print(f"      ➤ Trái = {e1 + e2:.0f} counts | Phải = {e3 + e4:.0f} counts\n")
+                print(f"      ➤ x = {x:.2f} m | y = {y:.2f} m | góc = {math.degrees(theta):.1f}° (Δθ = {dtheta_deg:.1f}°)")
+                print(f"      ➤ Trái = {e1 + e2} | Phải = {e3 + e4}\n")
 
             prev_x, prev_y, prev_theta = x, y, theta
             time.sleep(0.2)

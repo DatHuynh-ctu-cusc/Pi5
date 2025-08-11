@@ -25,7 +25,7 @@ def start_lidar_receiver(running_flag, callbacks=None, get_text_widget=None, por
         callbacks = []
     if not isinstance(callbacks, list):
         callbacks = [callbacks]
-    callbacks += registered_callbacks  # gộp thêm các callback đã đăng ký ngoài
+    callbacks += registered_callbacks
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
@@ -42,15 +42,19 @@ def start_lidar_receiver(running_flag, callbacks=None, get_text_widget=None, por
     while running_flag.is_set():
         try:
             conn, addr = server.accept()
-            print(f"[App] ✅ Kết nối Pi4: {addr}")
+            print(f"[App] ✅ Đã kết nối với Pi4: {addr}")
             with conn:
+                conn.settimeout(2.0)
                 buffer = ""
                 while running_flag.is_set():
                     try:
-                        chunk = conn.recv(4096).decode()
+                        chunk = conn.recv(4096)
                         if not chunk:
+                            print("[App] 🔌 Mất kết nối Pi4.")
                             break
-                        buffer += chunk
+
+                        buffer += chunk.decode(errors='ignore')
+
                         while '\n' in buffer:
                             line, buffer = buffer.split('\n', 1)
                             line = line.strip()
@@ -62,11 +66,12 @@ def start_lidar_receiver(running_flag, callbacks=None, get_text_widget=None, por
                             try:
                                 parsed = json.loads(line)
                                 last_data_time = time.time()
+
                                 if not receiving:
                                     print("🟢 Đang nhận dữ liệu LiDAR...")
                                     receiving = True
 
-                                # Gửi tới toàn bộ callback
+                                # Gọi callback
                                 for cb in callbacks:
                                     if callable(cb):
                                         try:
@@ -74,6 +79,7 @@ def start_lidar_receiver(running_flag, callbacks=None, get_text_widget=None, por
                                         except Exception as e:
                                             print(f"[App] ⚠️ Callback lỗi: {e}")
 
+                                # Cập nhật GUI nếu có
                                 if get_text_widget:
                                     try:
                                         text_widget = get_text_widget()
@@ -81,16 +87,26 @@ def start_lidar_receiver(running_flag, callbacks=None, get_text_widget=None, por
                                             text_widget.after(0, lambda: safe_insert_json(text_widget, parsed))
                                     except Exception as e:
                                         print(f"[App] ⚠️ Text widget lỗi: {e}")
+
                             except json.JSONDecodeError:
-                                print("[App] ❌ Không phải JSON:", line)
+                                # Không in lại lỗi JSON liên tục
+                                continue
+
+                        if time.time() - last_data_time > NOTIFY_INTERVAL and receiving:
+                            print("🔴 Không còn nhận dữ liệu LiDAR!")
+                            receiving = False
+
+                    except socket.timeout:
+                        if time.time() - last_data_time > NOTIFY_INTERVAL and receiving:
+                            print("🔴 Mất dữ liệu LiDAR!")
+                            receiving = False
                     except Exception as e:
-                        print("[App] ⚠️ Lỗi nhận dữ liệu:", e)
+                        print(f"[App] ⚠️ Lỗi khi nhận dữ liệu: {e}")
                         break
-                    if time.time() - last_data_time > NOTIFY_INTERVAL and receiving:
-                        print("🔴 Không nhận được dữ liệu LiDAR!")
-                        receiving = False
+
         except socket.timeout:
             continue
         except Exception as e:
-            print("[App] ⚠️ Lỗi kết nối Pi4:", e)
+            print(f"[App] ⚠️ Lỗi kết nối socket: {e}")
+
     server.close()
